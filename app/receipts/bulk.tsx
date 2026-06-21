@@ -45,6 +45,7 @@ export default function BulkReceiptScreen() {
   const [narration, setNarration] = useState('');
   const [remarks, setRemarks] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState<number | 'ALL'>('ALL');
+  const [selectedProfileDetails, setSelectedProfileDetails] = useState<SupplyOrder | null>(null);
 
   // Customer Balances State
   const [customers, setCustomers] = useState<CustomerBalanceItem[]>([]);
@@ -115,6 +116,8 @@ export default function BulkReceiptScreen() {
       // Sort by customer name
       mappedCustomers.sort((a, b) => a.name.localeCompare(b.name));
       setCustomers(mappedCustomers);
+      setSelectedProfileId('ALL');
+      setSelectedProfileDetails(null);
     } catch (error) {
       console.error('Failed to fetch customer balances', error);
       Alert.alert('Error', 'Failed to fetch customer balances for the selected month.');
@@ -128,15 +131,31 @@ export default function BulkReceiptScreen() {
     fetchBalances(newDate, customerAccounts);
   };
 
+  const fetchProfileDetails = async (profileId: number) => {
+    setFetchingBalances(true);
+    try {
+      const details = await supplyOrderService.getById(profileId);
+      setSelectedProfileDetails(details);
+    } catch (error) {
+      console.error('Failed to load profile details', error);
+      Alert.alert('Error', 'Failed to load details for the selected profile.');
+      setSelectedProfileId('ALL');
+      setSelectedProfileDetails(null);
+    } finally {
+      setFetchingBalances(false);
+    }
+  };
+
   const filteredCustomers = useMemo(() => {
     if (selectedProfileId === 'ALL') {
       return customers;
     }
-    const order = supplyOrders.find(o => o.id === selectedProfileId);
-    if (!order || !order.details) return [];
-    const profileCustomerIds = new Set(order.details.map(d => d.customerId));
+    if (!selectedProfileDetails || !selectedProfileDetails.details) {
+      return [];
+    }
+    const profileCustomerIds = new Set(selectedProfileDetails.details.map(d => d.customerId));
     return customers.filter(c => profileCustomerIds.has(c.accountId));
-  }, [customers, selectedProfileId, supplyOrders]);
+  }, [customers, selectedProfileId, selectedProfileDetails]);
 
   const isAllVisibleSelected = useMemo(() => {
     return filteredCustomers.length > 0 && filteredCustomers.every(c => c.selected);
@@ -179,6 +198,11 @@ export default function BulkReceiptScreen() {
       setNarration(val);
     } else if (selectModalType === 'profile') {
       setSelectedProfileId(val);
+      if (val !== 'ALL') {
+        fetchProfileDetails(val);
+      } else {
+        setSelectedProfileDetails(null);
+      }
     }
     setSelectModalVisible(false);
   };
