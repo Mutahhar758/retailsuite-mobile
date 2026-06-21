@@ -153,8 +153,19 @@ export default function BulkReceiptScreen() {
     if (!selectedProfileDetails || !selectedProfileDetails.details) {
       return [];
     }
-    const profileCustomerIds = new Set(selectedProfileDetails.details.map(d => d.customerId));
-    return customers.filter(c => profileCustomerIds.has(c.accountId));
+    // Map customerId -> sortOrder/index for quick ordering
+    const customerOrderMap = new Map<string, number>();
+    selectedProfileDetails.details.forEach((d, index) => {
+      customerOrderMap.set(d.customerId, typeof d.sortOrder === 'number' ? d.sortOrder : index);
+    });
+
+    return customers
+      .filter(c => customerOrderMap.has(c.accountId))
+      .sort((a, b) => {
+        const orderA = customerOrderMap.get(a.accountId) ?? 0;
+        const orderB = customerOrderMap.get(b.accountId) ?? 0;
+        return orderA - orderB;
+      });
   }, [customers, selectedProfileId, selectedProfileDetails]);
 
   const isAllVisibleSelected = useMemo(() => {
@@ -431,7 +442,7 @@ export default function BulkReceiptScreen() {
                     </TouchableOpacity>
 
                     <View style={styles.customerInfo}>
-                      <Text style={styles.customerName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.customerName}>{item.name}</Text>
                       <Text style={styles.customerCode}>{item.accountId}</Text>
                       <Text style={styles.customerBalance}>Owes: Rs. {item.balance.toLocaleString()}</Text>
                     </View>
