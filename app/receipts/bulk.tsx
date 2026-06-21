@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Modal
@@ -12,6 +12,7 @@ import { receiptService } from '../../services/receiptService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { reportService } from '../../services/reportService';
+import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderService';
 import dayjs from 'dayjs';
 
 interface CustomerBalanceItem {
@@ -32,6 +33,7 @@ export default function BulkReceiptScreen() {
   const [cashBankAccounts, setCashBankAccounts] = useState<ChartOfAccountHeadDto[]>([]);
   const [narrations, setNarrations] = useState<NarrationDto[]>([]);
   const [customerAccounts, setCustomerAccounts] = useState<ChartOfAccountHeadDto[]>([]);
+  const [supplyOrders, setSupplyOrders] = useState<SupplyOrder[]>([]);
 
   // Form State
   const [date, setDate] = useState(new Date());
@@ -42,14 +44,14 @@ export default function BulkReceiptScreen() {
   const [cashBankAccount, setCashBankAccount] = useState('');
   const [narration, setNarration] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [selectedProfileId, setSelectedProfileId] = useState<number | 'ALL'>('ALL');
 
   // Customer Balances State
   const [customers, setCustomers] = useState<CustomerBalanceItem[]>([]);
-  const [selectAll, setSelectAll] = useState(false);
 
   // Searchable Modal State
   const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'cashBank' | 'narration'>('cashBank');
+  const [selectModalType, setSelectModalType] = useState<'cashBank' | 'narration' | 'profile'>('cashBank');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -58,14 +60,16 @@ export default function BulkReceiptScreen() {
 
   const fetchLookups = async () => {
     try {
-      const [cbAccs, narrs, custAccs] = await Promise.all([
+      const [cbAccs, narrs, custAccs, orders] = await Promise.all([
         chartOfAccountService.getCashBankAccounts(),
         narrationService.getActiveNarrations(),
-        chartOfAccountService.getCustomerAccounts()
+        chartOfAccountService.getCustomerAccounts(),
+        supplyOrderService.getList()
       ]);
       setCashBankAccounts(cbAccs);
       setNarrations(narrs);
       setCustomerAccounts(custAccs);
+      setSupplyOrders(orders);
       
       // Default cash/bank if available
       if (cbAccs.length > 0) {
@@ -111,7 +115,6 @@ export default function BulkReceiptScreen() {
       // Sort by customer name
       mappedCustomers.sort((a, b) => a.name.localeCompare(b.name));
       setCustomers(mappedCustomers);
-      setSelectAll(false);
     } catch (error) {
       console.error('Failed to fetch customer balances', error);
       Alert.alert('Error', 'Failed to fetch customer balances for the selected month.');
@@ -125,45 +128,57 @@ export default function BulkReceiptScreen() {
     fetchBalances(newDate, customerAccounts);
   };
 
-  const toggleSelectCustomer = (index: number) => {
-    setCustomers(prev => {
-      const updated = [...prev];
-      updated[index].selected = !updated[index].selected;
-      
-      // Update Select All checkbox state
-      const allSelected = updated.length > 0 && updated.every(c => c.selected);
-      setSelectAll(allSelected);
-      
-      return updated;
-    });
+  const filteredCustomers = useMemo(() => {
+    if (selectedProfileId === 'ALL') {
+      return customers;
+    }
+    const order = supplyOrders.find(o => o.id === selectedProfileId);
+    if (!order || !order.details) return [];
+    const profileCustomerIds = new Set(order.details.map(d => d.customerId));
+    return customers.filter(c => profileCustomerIds.has(c.accountId));
+  }, [customers, selectedProfileId, supplyOrders]);
+
+  const isAllVisibleSelected = useMemo(() => {
+    return filteredCustomers.length > 0 && filteredCustomers.every(c => c.selected);
+  }, [filteredCustomers]);
+
+  const toggleSelectCustomer = (accountId: string) => {
+    setCustomers(prev => prev.map(c => 
+      c.accountId === accountId ? { ...c, selected: !c.selected } : c
+    ));
   };
 
-  const handlePaymentAmountChange = (index: number, val: string) => {
+  const handlePaymentAmountChange = (accountId: string, val: string) => {
     const num = parseFloat(val) || 0;
-    setCustomers(prev => {
-      const updated = [...prev];
-      updated[index].paymentAmount = num;
-      return updated;
-    });
+    setCustomers(prev => prev.map(c => 
+      c.accountId === accountId ? { ...c, paymentAmount: num } : c
+    ));
   };
 
   const handleSelectAll = () => {
-    const nextState = !selectAll;
-    setSelectAll(nextState);
-    setCustomers(prev => prev.map(c => ({ ...c, selected: nextState })));
+    const nextState = !isAllVisibleSelected;
+    const visibleIds = new Set(filteredCustomers.map(c => c.accountId));
+    setCustomers(prev => prev.map(c => {
+      if (visibleIds.has(c.accountId)) {
+        return { ...c, selected: nextState };
+      }
+      return c;
+    }));
   };
 
-  const openSelectModal = (type: 'cashBank' | 'narration') => {
+  const openSelectModal = (type: 'cashBank' | 'narration' | 'profile') => {
     setSelectModalType(type);
     setSearchQuery('');
     setSelectModalVisible(true);
   };
 
-  const handleSelect = (val: string) => {
+  const handleSelect = (val: any) => {
     if (selectModalType === 'cashBank') {
       setCashBankAccount(val);
     } else if (selectModalType === 'narration') {
       setNarration(val);
+    } else if (selectModalType === 'profile') {
+      setSelectedProfileId(val);
     }
     setSelectModalVisible(false);
   };
@@ -326,19 +341,40 @@ export default function BulkReceiptScreen() {
           {/* Customers List Section */}
           <Animated.View entering={FadeInDown.delay(200).duration(400)} style={[styles.section, { paddingBottom: 0 }]}>
             <View style={styles.listHeaderRow}>
-              <Text style={styles.sectionTitle}>Customer Balances</Text>
+              <View>
+                <Text style={styles.sectionTitle}>Customer Balances</Text>
+                {selectedProfileId !== 'ALL' && (
+                  <Text style={styles.filterSubText}>
+                    Showing {filteredCustomers.length} of {customers.length} customers
+                  </Text>
+                )}
+              </View>
               {fetchingBalances ? (
                 <ActivityIndicator size="small" color={Theme.colors.primary} />
               ) : (
                 <TouchableOpacity style={styles.selectAllBtn} onPress={handleSelectAll}>
                   <Ionicons 
-                    name={selectAll ? "checkbox" : "square-outline"} 
+                    name={isAllVisibleSelected ? "checkbox" : "square-outline"} 
                     size={20} 
-                    color={selectAll ? Theme.colors.primary : Theme.colors.textSecondary} 
+                    color={isAllVisibleSelected ? Theme.colors.primary : Theme.colors.textSecondary} 
                   />
-                  <Text style={[styles.selectAllText, selectAll && { color: Theme.colors.primary }]}>Select All</Text>
+                  <Text style={[styles.selectAllText, isAllVisibleSelected && { color: Theme.colors.primary }]}>Select All</Text>
                 </TouchableOpacity>
               )}
+            </View>
+
+            {/* Profile Filter Dropdown */}
+            <View style={[styles.inputGroup, { marginBottom: Theme.spacing.md }]}>
+              <Text style={styles.label}>Filter by Profile</Text>
+              <TouchableOpacity 
+                style={styles.pickerContainer}
+                onPress={() => openSelectModal('profile')}
+              >
+                <Text style={styles.selectorText}>
+                  {selectedProfileId === 'ALL' ? 'ALL' : supplyOrders.find(o => o.id === selectedProfileId)?.title || 'ALL'}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
+              </TouchableOpacity>
             </View>
 
             {fetchingBalances ? (
@@ -346,18 +382,22 @@ export default function BulkReceiptScreen() {
                 <ActivityIndicator size="large" color={Theme.colors.primary} />
                 <Text style={styles.loadingText}>Fetching customer balances...</Text>
               </View>
-            ) : customers.length === 0 ? (
+            ) : filteredCustomers.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="checkmark-circle-outline" size={48} color={Theme.colors.success} />
-                <Text style={styles.emptyText}>All customer bills are clear for this month!</Text>
+                <Text style={styles.emptyText}>
+                  {selectedProfileId === 'ALL' 
+                    ? 'All customer bills are clear for this month!' 
+                    : 'No outstanding balances for customers in this profile.'}
+                </Text>
               </View>
             ) : (
               <View style={styles.customerList}>
-                {customers.map((item, index) => (
+                {filteredCustomers.map((item) => (
                   <View key={item.accountId} style={[styles.customerCard, item.selected && styles.customerCardSelected]}>
                     <TouchableOpacity 
                       style={styles.checkboxContainer} 
-                      onPress={() => toggleSelectCustomer(index)}
+                      onPress={() => toggleSelectCustomer(item.accountId)}
                     >
                       <Ionicons 
                         name={item.selected ? "checkbox" : "square-outline"} 
@@ -380,7 +420,7 @@ export default function BulkReceiptScreen() {
                         editable={item.selected}
                         placeholder={item.balance.toString()}
                         value={item.paymentAmount.toString()}
-                        onChangeText={(val) => handlePaymentAmountChange(index, val)}
+                        onChangeText={(val) => handlePaymentAmountChange(item.accountId, val)}
                       />
                     </View>
                   </View>
@@ -423,7 +463,8 @@ export default function BulkReceiptScreen() {
             <View style={[styles.modalContent, { maxHeight: '50%' }]}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
-                  {selectModalType === 'cashBank' ? 'Select Cash/Bank' : 'Select Narration'}
+                  {selectModalType === 'cashBank' ? 'Select Cash/Bank' : 
+                   selectModalType === 'narration' ? 'Select Narration' : 'Select Profile'}
                 </Text>
                 <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
                   <Ionicons name="close" size={24} color={Theme.colors.text} />
@@ -462,6 +503,22 @@ export default function BulkReceiptScreen() {
                     <Text style={styles.modalListItemText}>{n.title}</Text>
                   </TouchableOpacity>
                 ))}
+                {selectModalType === 'profile' && (
+                  <>
+                    <TouchableOpacity style={styles.modalListItem} onPress={() => handleSelect('ALL')}>
+                      <Text style={styles.modalListItemText}>ALL</Text>
+                      <Text style={styles.modalListItemSub}>Show all customers</Text>
+                    </TouchableOpacity>
+                    {supplyOrders
+                      .filter(o => o.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map(o => (
+                      <TouchableOpacity key={o.id} style={styles.modalListItem} onPress={() => handleSelect(o.id)}>
+                        <Text style={styles.modalListItemText}>{o.title}</Text>
+                        <Text style={styles.modalListItemSub}>{o.details?.length || 0} customers</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -613,6 +670,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Theme.spacing.md,
+  },
+  filterSubText: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    marginTop: 2,
   },
   selectAllBtn: {
     flexDirection: 'row',

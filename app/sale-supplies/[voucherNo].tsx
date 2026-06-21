@@ -48,6 +48,7 @@ export default function SaleSupplyFormScreen() {
   const [selectModalVisible, setSelectModalVisible] = useState(false);
   const [selectModalType, setSelectModalType] = useState<'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder'>('item');
   const [activeLineSeq, setActiveLineSeq] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadLookups();
@@ -174,6 +175,7 @@ export default function SaleSupplyFormScreen() {
   const openSelector = (type: 'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder', seq?: number) => {
     setSelectModalType(type);
     if (seq) setActiveLineSeq(seq);
+    setSearchQuery('');
     setSelectModalVisible(true);
   };
 
@@ -525,31 +527,57 @@ export default function SaleSupplyFormScreen() {
                 <Ionicons name="close" size={24} color={Theme.colors.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView>
-              {selectModalType === 'item' && items.map(i => (
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={Theme.colors.textSecondary} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={Theme.colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {selectModalType === 'item' && items
+                .filter(i => i.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(i => (
                 <TouchableOpacity key={i.id} style={styles.modalItem} onPress={() => handleSelect(i.id)}>
                   <Text style={styles.modalItemText}>{i.title}</Text>
                 </TouchableOpacity>
               ))}
-              {selectModalType === 'customer' && customers.map(c => (
+              {selectModalType === 'customer' && customers
+                .filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()) || c.account.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(c => (
                 <TouchableOpacity key={c.account} style={styles.modalItem} onPress={() => handleSelect(c.account)}>
                   <Text style={styles.modalItemText}>{c.title}</Text>
                 </TouchableOpacity>
               ))}
-              {selectModalType === 'narration' && narrations.map(n => (
+              {selectModalType === 'narration' && narrations
+                .filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(n => (
                 <TouchableOpacity key={n.code} style={styles.modalItem} onPress={() => handleSelect(n.code)}>
                   <Text style={styles.modalItemText}>{n.title}</Text>
                 </TouchableOpacity>
               ))}
-              {selectModalType === 'unit' && units.filter(u => {
-                const selectedItem = items.find(i => i.id === itemId);
-                return !selectedItem || u.code === selectedItem.primaryUnit || u.code === selectedItem.secondaryUnit;
-              }).map(u => (
+              {selectModalType === 'unit' && units
+                .filter(u => {
+                  const selectedItem = items.find(i => i.id === itemId);
+                  return !selectedItem || u.code === selectedItem.primaryUnit || u.code === selectedItem.secondaryUnit;
+                })
+                .filter(u => u.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(u => (
                 <TouchableOpacity key={u.code} style={styles.modalItem} onPress={() => handleSelect(u.code)}>
                   <Text style={styles.modalItemText}>{u.title}</Text>
                 </TouchableOpacity>
               ))}
-              {selectModalType === 'supplyOrder' && supplyOrders.map(o => (
+              {selectModalType === 'supplyOrder' && supplyOrders
+                .filter(o => o.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                .map(o => (
                 <TouchableOpacity key={o.id} style={styles.modalItem} onPress={() => handleSelect(o.id)}>
                   <Text style={styles.modalItemText}>{o.title}</Text>
                 </TouchableOpacity>
@@ -781,5 +809,25 @@ const styles = StyleSheet.create({
   },
   modalItemText: {
     ...Theme.typography.body,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.radii.sm,
+    paddingHorizontal: Theme.spacing.sm,
+    marginBottom: Theme.spacing.md,
+    height: 44,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  searchIcon: {
+    marginRight: 6,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    ...Theme.typography.body,
+    color: Theme.colors.text,
   },
 });
