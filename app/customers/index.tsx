@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
@@ -41,24 +41,37 @@ export default function CustomersListScreen() {
         style={styles.card} 
         onPress={() => router.push(`/customers/${item.account}`)}
       >
-        <View style={styles.cardHeader}>
-          <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
-            <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
-              {item.active ? 'Active' : 'Inactive'}
-            </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={styles.listAvatarContainer}>
+            {item.mediaUrl ? (
+              <Image source={{ uri: item.mediaUrl }} style={styles.listAvatarImage} />
+            ) : (
+              <Ionicons name="person-outline" size={20} color={Theme.colors.textSecondary} />
+            )}
+          </View>
+          
+          <View style={{ flex: 1, marginLeft: Theme.spacing.sm }}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
+                <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
+                  {item.active ? 'Active' : 'Inactive'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.cardBody}>
+              <View style={styles.infoRow}>
+                <Ionicons name="call-outline" size={14} color={Theme.colors.textSecondary} />
+                <Text style={styles.infoText}>{item.phone1 || 'No Phone'}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="mail-outline" size={14} color={Theme.colors.textSecondary} />
+                <Text style={styles.infoText} numberOfLines={1}>{item.email || 'No Email'}</Text>
+              </View>
+            </View>
           </View>
         </View>
-        <View style={styles.cardBody}>
-          <View style={styles.infoRow}>
-            <Ionicons name="call-outline" size={14} color={Theme.colors.textSecondary} />
-            <Text style={styles.infoText}>{item.phone1 || 'No Phone'}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="mail-outline" size={14} color={Theme.colors.textSecondary} />
-            <Text style={styles.infoText} numberOfLines={1}>{item.email || 'No Email'}</Text>
-          </View>
-        </View>
+        
         <View style={styles.cardFooter}>
           <Text style={styles.accountNo}>{item.account}</Text>
           <Ionicons name="chevron-forward" size={16} color={Theme.colors.textSecondary} />
@@ -197,5 +210,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     ...Theme.shadows.md,
+  },
+  listAvatarContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: Theme.colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  listAvatarImage: {
+    width: '100%',
+    height: '100%',
   },
 });

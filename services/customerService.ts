@@ -15,6 +15,8 @@ export interface CustomerResponse {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  mediaId?: string;
+  mediaUrl?: string;
   createdBy?: string;
   createdOn?: string;
   lastModifiedBy?: string;
@@ -35,6 +37,7 @@ export interface CustomerCreateRequest {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  mediaId?: string;
 }
 
 export interface CustomerUpdateRequest {
@@ -51,6 +54,7 @@ export interface CustomerUpdateRequest {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  mediaId?: string;
 }
 
 export const customerService = {
@@ -76,5 +80,10 @@ export const customerService = {
   async update(account: string, data: CustomerUpdateRequest) {
     const response = await api.put(`/api/customers/${account}`, data);
     return response.data.body as string;
+  },
+
+  async getPresignedUploadUrl(fileName: string) {
+    const response = await api.post('/api/customers/presigned-upload-url', null, { params: { fileName } });
+    return response.data.body as { fileId: string; uploadUrl: string; expiresAt: string };
   }
 };

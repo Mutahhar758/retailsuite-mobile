@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
-  TextInput, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Switch
+  TextInput, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Switch, Image
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
+import axios from 'axios';
 import { Theme } from '../../constants/theme';
 import { customerService, CustomerCreateRequest, CustomerUpdateRequest } from '../../services/customerService';
 
@@ -30,6 +32,9 @@ export default function CustomerFormScreen() {
   const [active, setActive] = useState(true);
   const [smsAlert, setSmsAlert] = useState(false);
   const [emailAlert, setEmailAlert] = useState(false);
+  const [mediaId, setMediaId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (isEdit) {
@@ -53,6 +58,8 @@ export default function CustomerFormScreen() {
         setActive(details.active ?? true);
         setSmsAlert(details.smsAlert ?? false);
         setEmailAlert(details.emailAlert ?? false);
+        setMediaId(details.mediaId || null);
+        setImageUrl(details.mediaUrl || null);
       } else {
         Alert.alert('Error', 'Customer not found.');
         router.back();
@@ -62,6 +69,62 @@ export default function CustomerFormScreen() {
       router.back();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'We need camera roll permissions to upload an avatar.');
+      return;
+    }
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const pickedAsset = result.assets[0];
+        const uriParts = pickedAsset.uri.split('/');
+        const fileName = pickedAsset.fileName || uriParts[uriParts.length - 1] || 'avatar.jpg';
+        await uploadImage(pickedAsset.uri, fileName);
+      }
+    } catch (error) {
+      console.error('Failed to pick image', error);
+      Alert.alert('Error', 'Failed to pick image.');
+    }
+  };
+
+  const uploadImage = async (uri: string, name: string) => {
+    setUploading(true);
+    try {
+      const { fileId, uploadUrl } = await customerService.getPresignedUploadUrl(name);
+      
+      const formData = new FormData();
+      formData.append('File', {
+        uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri,
+        name: name,
+        type: 'image/jpeg',
+      } as any);
+
+      await axios.post(uploadUrl, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      setMediaId(fileId);
+      setImageUrl(uri);
+      Alert.alert('Success', 'Avatar uploaded successfully.');
+    } catch (error: any) {
+      console.error('Failed to upload image', error);
+      Alert.alert('Upload Error', 'Failed to upload avatar image to storage.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -75,13 +138,13 @@ export default function CustomerFormScreen() {
     try {
       if (isEdit) {
         const payload: CustomerUpdateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert
+          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined
         };
         await customerService.update(account!, payload);
         Alert.alert('Success', 'Customer updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       } else {
         const payload: CustomerCreateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert
+          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined
         };
         await customerService.create(payload);
         Alert.alert('Success', 'Customer created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
@@ -109,6 +172,28 @@ export default function CustomerFormScreen() {
       >
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
           
+          <Animated.View entering={FadeInDown.duration(400)} style={styles.avatarSection}>
+            <TouchableOpacity onPress={pickImage} disabled={uploading} style={styles.avatarBtn}>
+              {imageUrl ? (
+                <Image source={{ uri: imageUrl }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  {uploading ? (
+                    <ActivityIndicator size="small" color={Theme.colors.primary} />
+                  ) : (
+                    <Ionicons name="camera-outline" size={32} color={Theme.colors.textSecondary} />
+                  )}
+                </View>
+              )}
+              {imageUrl && !uploading && (
+                <View style={styles.editIconBadge}>
+                  <Ionicons name="pencil" size={12} color={Theme.colors.white} />
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.avatarText}>{uploading ? 'Uploading...' : imageUrl ? 'Change Avatar' : 'Upload Avatar'}</Text>
+          </Animated.View>
+
           <Animated.View entering={FadeInDown.duration(400)} style={styles.section}>
             <Text style={styles.sectionTitle}>Basic Information</Text>
             
@@ -365,5 +450,52 @@ const styles = StyleSheet.create({
     ...Theme.typography.bodyMedium,
     color: Theme.colors.white,
     fontWeight: '700',
+  },
+  avatarSection: {
+    alignItems: 'center',
+    marginVertical: Theme.spacing.md,
+  },
+  avatarBtn: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: Theme.colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: Theme.colors.white,
+    position: 'relative',
+    ...Theme.shadows.sm,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.background,
+  },
+  editIconBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: Theme.colors.primary,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Theme.colors.white,
+  },
+  avatarText: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    marginTop: 8,
+    fontWeight: '600',
   },
 });
