@@ -49,6 +49,7 @@ export default function SaleSupplyFormScreen() {
   const [selectModalType, setSelectModalType] = useState<'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder'>('item');
   const [activeLineSeq, setActiveLineSeq] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [lineSearchQuery, setLineSearchQuery] = useState('');
 
   useEffect(() => {
     loadLookups();
@@ -212,6 +213,18 @@ export default function SaleSupplyFormScreen() {
   const getSelectedNarrationName = () => narrations.find(n => n.code === narration)?.title || 'Select Narration';
   const getCustomerName = (id: string) => customers.find(c => c.account === id)?.title || 'Select Customer';
   const getUnitName = (code: string) => units.find(u => u.code === code)?.title || 'Select Unit';
+
+  const filteredLines = useMemo(() => {
+    if (!lineSearchQuery.trim()) {
+      return lines;
+    }
+    const query = lineSearchQuery.toLowerCase().trim();
+    return lines.filter(line => {
+      const customerName = getCustomerName(line.customerId).toLowerCase();
+      const customerId = line.customerId.toLowerCase();
+      return customerName.includes(query) || customerId.includes(query);
+    });
+  }, [lines, lineSearchQuery, customers]);
 
   const totalAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
@@ -408,7 +421,26 @@ export default function SaleSupplyFormScreen() {
             </TouchableOpacity>
           </View>
 
-          {lines.map((line, index) => {
+          {/* Keyword Search Input */}
+          {lines.length > 0 && (
+            <View style={styles.linesSearchContainer}>
+              <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={{ marginRight: 6 }} />
+              <TextInput
+                style={styles.linesSearchInput}
+                placeholder="Search line items by customer name or code..."
+                value={lineSearchQuery}
+                onChangeText={setLineSearchQuery}
+                autoCapitalize="none"
+              />
+              {lineSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setLineSearchQuery('')}>
+                  <Ionicons name="close-circle" size={18} color={Theme.colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {filteredLines.map((line, index) => {
             const lineAmount = (line.qty * (line.rate - line.discount)) + line.addLess;
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
@@ -825,6 +857,24 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   searchInput: {
+    flex: 1,
+    height: '100%',
+    ...Theme.typography.body,
+    color: Theme.colors.text,
+  },
+  linesSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.white,
+    borderRadius: Theme.radii.md,
+    paddingHorizontal: Theme.spacing.sm,
+    marginBottom: Theme.spacing.md,
+    height: 48,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    ...Theme.shadows.sm,
+  },
+  linesSearchInput: {
     flex: 1,
     height: '100%',
     ...Theme.typography.body,
