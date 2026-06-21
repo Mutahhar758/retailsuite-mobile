@@ -538,7 +538,6 @@ export default function BulkReceiptScreen() {
                       .map(o => (
                       <TouchableOpacity key={o.id} style={styles.modalListItem} onPress={() => handleSelect(o.id)}>
                         <Text style={styles.modalListItemText}>{o.title}</Text>
-                        <Text style={styles.modalListItemSub}>{o.details?.length || 0} customers</Text>
                       </TouchableOpacity>
                     ))}
                   </>
