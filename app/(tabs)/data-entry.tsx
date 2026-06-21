@@ -73,19 +73,6 @@ export default function DataEntryScreen() {
             <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/payments/bulk')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: '#f0f9ff' }]}>
-              <Ionicons name="cash-outline" size={32} color="#0284c7" />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Bulk Payment</Text>
-              <Text style={styles.cardDesc}>Create payments for multiple suppliers at once</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>

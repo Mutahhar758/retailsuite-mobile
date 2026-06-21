@@ -22,13 +22,6 @@ export default function PaymentsLayout() {
         }} 
       />
       <Stack.Screen 
-        name="bulk" 
-        options={{ 
-          title: 'Bulk Payment',
-          presentation: 'card',
-        }} 
-      />
-      <Stack.Screen 
         name="[voucherNo]" 
         options={{ 
           title: 'Payment Details',
