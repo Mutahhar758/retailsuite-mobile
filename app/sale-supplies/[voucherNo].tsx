@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Modal
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import dayjs from 'dayjs';
@@ -37,6 +37,7 @@ export default function SaleSupplyFormScreen() {
   const [itemId, setItemId] = useState('');
   const [narration, setNarration] = useState('');
   const [description, setDescription] = useState('');
+  const [supplyOrderId, setSupplyOrderId] = useState<number | null>(null);
 
   // Lines State
   const [lines, setLines] = useState<SaleSupplyLineRequest[]>([
@@ -86,6 +87,7 @@ export default function SaleSupplyFormScreen() {
         setItemId(first.itemId || '');
         setNarration(first.narrationId || '');
         setDescription(first.description || '');
+        setSupplyOrderId(first.supplyOrderMasterId ?? null);
         
         const mappedLines = details.map(d => ({
           seq: d.seq,
@@ -180,6 +182,7 @@ export default function SaleSupplyFormScreen() {
     } else if (selectModalType === 'narration') {
       setNarration(value);
     } else if (selectModalType === 'supplyOrder') {
+      setSupplyOrderId(value);
       loadFromSupplyOrder(value);
     } else if (selectModalType === 'customer' && activeLineSeq) {
       updateLine(activeLineSeq, { customerId: value });
@@ -217,7 +220,7 @@ export default function SaleSupplyFormScreen() {
       Alert.alert('Validation Error', 'Item to supply is required.');
       return;
     }
-    
+
     const validLines = lines.filter(l => l.customerId && l.qty > 0);
     if (validLines.length === 0) {
       Alert.alert('Validation Error', 'At least one line item with customer is required.');
@@ -239,6 +242,7 @@ export default function SaleSupplyFormScreen() {
       const request = {
         date: dayjs(date).format('YYYY-MM-DD'),
         itemId,
+        supplyOrderMasterId: supplyOrderId ?? undefined,
         narration: narration || undefined,
         description: description || undefined,
         lines: cleanedLines
@@ -270,6 +274,33 @@ export default function SaleSupplyFormScreen() {
     ]);
   };
 
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Voucher',
+      `Are you sure you want to delete sale supply voucher SP-${String(voucherNo).padStart(5, '0')}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setSaving(true);
+              await saleSupplyService.delete(voucherNo!);
+              Alert.alert('Success', 'Voucher deleted successfully.', [
+                { text: 'OK', onPress: () => router.back() }
+              ]);
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.message || 'Failed to delete sale supply.');
+            } finally {
+              setSaving(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -280,6 +311,15 @@ export default function SaleSupplyFormScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen
+        options={{
+          headerRight: () => isEdit ? (
+            <TouchableOpacity onPress={handleDelete} style={{ padding: 8 }}>
+              <Ionicons name="trash-outline" size={22} color={Theme.colors.danger} />
+            </TouchableOpacity>
+          ) : null
+        }}
+      />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
           
@@ -324,9 +364,13 @@ export default function SaleSupplyFormScreen() {
             </View>
             
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Load from Supply Order</Text>
+              <Text style={styles.label}>Supply Order Profile</Text>
               <TouchableOpacity style={styles.selector} onPress={() => openSelector('supplyOrder')}>
-                <Text style={styles.placeholder}>Select order to load customers...</Text>
+                <Text style={[styles.selectorText, !supplyOrderId && styles.placeholder]}>
+                  {supplyOrderId
+                    ? supplyOrders.find(o => o.id === supplyOrderId)?.title || 'Select Profile'
+                    : 'Select Supply Order Profile...'}
+                </Text>
                 <Ionicons name="download-outline" size={16} color={Theme.colors.primary} />
               </TouchableOpacity>
             </View>

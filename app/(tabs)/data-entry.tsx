@@ -60,16 +60,29 @@ export default function DataEntryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.card, { opacity: 0.6 }]}
-            onPress={() => {}}
-            disabled={true}
+            style={styles.card}
+            onPress={() => router.push('/payments')}
           >
             <View style={[styles.iconContainer, { backgroundColor: Theme.colors.danger + '20' }]}>
               <Ionicons name="wallet-outline" size={32} color={Theme.colors.danger} />
             </View>
             <View style={styles.cardContent}>
               <Text style={styles.cardTitle}>Payment</Text>
-              <Text style={styles.cardDesc}>Manage payments (Coming soon)</Text>
+              <Text style={styles.cardDesc}>View and manage cash or bank payments</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/payments/bulk')}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: '#f0f9ff' }]}>
+              <Ionicons name="cash-outline" size={32} color="#0284c7" />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Bulk Payment</Text>
+              <Text style={styles.cardDesc}>Create payments for multiple suppliers at once</Text>
             </View>
             <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
           </TouchableOpacity>

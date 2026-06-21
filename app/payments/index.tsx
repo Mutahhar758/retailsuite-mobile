@@ -5,20 +5,20 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
-import { saleSupplyService, SaleSupply } from '../../services/saleSupplyService';
+import { paymentService, PaymentDto } from '../../services/paymentService';
 
-export default function SaleSuppliesListScreen() {
+export default function PaymentsListScreen() {
   const router = useRouter();
-  const [supplies, setSupplies] = useState<SaleSupply[]>([]);
+  const [payments, setPayments] = useState<PaymentDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchSupplies = useCallback(async () => {
+  const fetchPayments = useCallback(async () => {
     try {
-      const data = await saleSupplyService.getList();
-      setSupplies(data);
+      const data = await paymentService.getList();
+      setPayments(data);
     } catch (error) {
-      console.error('Failed to fetch sale supplies', error);
+      console.error('Failed to fetch payments', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -27,38 +27,29 @@ export default function SaleSuppliesListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchSupplies();
-    }, [fetchSupplies])
+      fetchPayments();
+    }, [fetchPayments])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchSupplies();
+    fetchPayments();
   };
 
-  const renderItem = ({ item, index }: { item: SaleSupply; index: number }) => (
+  const renderItem = ({ item, index }: { item: PaymentDto; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 50).duration(400)}>
       <TouchableOpacity 
         style={styles.card} 
-        onPress={() => router.push(`/sale-supplies/${item.voucherNo}`)}
+        onPress={() => router.push(`/payments/${item.voucherNo}`)}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.voucherNo}>SP-{String(item.voucherNo).padStart(5, '0')}</Text>
+          <Text style={styles.voucherNo}>PV-{String(item.voucherNo).padStart(5, '0')}</Text>
           <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
         </View>
-        
         <View style={styles.cardBody}>
-          <Text style={styles.title} numberOfLines={1}>{item.item || 'Unknown Item'}</Text>
-          {!!item.supplyOrderTitle && (
-            <View style={styles.profileBadge}>
-              <Ionicons name="document-text-outline" size={12} color="#1d4ed8" style={{ marginRight: 4 }} />
-              <Text style={styles.profileText} numberOfLines={1}>
-                {item.supplyOrderTitle}
-              </Text>
-            </View>
-          )}
+          <Text style={styles.narration} numberOfLines={1}>{item.narration || 'No narration'}</Text>
+          <Text style={styles.amount}>Rs. {item.amount.toLocaleString(undefined, { minimumFractionDigits: 0 })}</Text>
         </View>
-
         <View style={styles.cardFooter}>
           <View style={{ flex: 1 }}>
             <View style={styles.infoRow}>
@@ -90,7 +81,7 @@ export default function SaleSuppliesListScreen() {
         </View>
       ) : (
         <FlatList
-          data={supplies}
+          data={payments}
           keyExtractor={(item) => item.voucherNo}
           renderItem={renderItem}
           contentContainerStyle={styles.listContainer}
@@ -99,8 +90,8 @@ export default function SaleSuppliesListScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Ionicons name="car-outline" size={64} color={Theme.colors.border} />
-              <Text style={styles.emptyText}>No sale supplies found.</Text>
+              <Ionicons name="document-text-outline" size={64} color={Theme.colors.border} />
+              <Text style={styles.emptyText}>No payments found.</Text>
             </View>
           }
         />
@@ -109,7 +100,7 @@ export default function SaleSuppliesListScreen() {
       <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.fabContainer}>
         <TouchableOpacity
           style={styles.fab}
-          onPress={() => router.push('/sale-supplies/new')}
+          onPress={() => router.push('/payments/new')}
         >
           <Ionicons name="add" size={30} color={Theme.colors.white} />
         </TouchableOpacity>
@@ -154,26 +145,20 @@ const styles = StyleSheet.create({
     color: Theme.colors.textSecondary,
   },
   cardBody: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: Theme.spacing.sm,
   },
-  title: {
-    ...Theme.typography.h3,
+  narration: {
+    ...Theme.typography.body,
     color: Theme.colors.text,
+    flex: 1,
+    marginRight: Theme.spacing.sm,
   },
-  profileBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 6,
-  },
-  profileText: {
-    ...Theme.typography.caption,
-    color: '#1d4ed8',
-    fontWeight: '600',
+  amount: {
+    ...Theme.typography.h3,
+    color: Theme.colors.danger, // payment is out, red is better
   },
   cardFooter: {
     flexDirection: 'row',

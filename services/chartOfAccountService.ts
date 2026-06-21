@@ -30,6 +30,11 @@ export const chartOfAccountService = {
   async getCashBankAccounts() {
     const response = await api.get('/api/chartofaccounts/cashbanks');
     return response.data.body as ChartOfAccountHeadDto[];
+  },
+
+  async getSupplierAccounts() {
+    const response = await api.get('/api/chartofaccounts/suppliers');
+    return response.data.body as ChartOfAccountHeadDto[];
   }
 };
 
