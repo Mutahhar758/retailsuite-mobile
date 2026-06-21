@@ -109,6 +109,7 @@ export default function SaleSupplyFormScreen() {
   };
 
   const loadFromSupplyOrder = async (orderId: number) => {
+    if (isEdit) return;
     const selectedItem = items.find(i => i.id === itemId);
     
     setLoading(true);
@@ -183,7 +184,9 @@ export default function SaleSupplyFormScreen() {
       setNarration(value);
     } else if (selectModalType === 'supplyOrder') {
       setSupplyOrderId(value);
-      loadFromSupplyOrder(value);
+      if (!isEdit) {
+        loadFromSupplyOrder(value);
+      }
     } else if (selectModalType === 'customer' && activeLineSeq) {
       updateLine(activeLineSeq, { customerId: value });
     } else if (selectModalType === 'unit' && activeLineSeq) {
