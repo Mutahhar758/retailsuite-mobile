@@ -456,6 +456,7 @@ export default function ReceiptFormScreen() {
                     style={styles.textInput}
                     keyboardType="numeric"
                     placeholder="Enter amount"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     value={currentLine.amount ? currentLine.amount.toString() : ''}
                     onChangeText={(val) => setCurrentLine({ ...currentLine, amount: parseFloat(val) || 0 })}
                   />
@@ -466,6 +467,7 @@ export default function ReceiptFormScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="Optional check number"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     value={currentLine.checkNum}
                     onChangeText={(val) => setCurrentLine({ ...currentLine, checkNum: val })}
                   />
@@ -500,6 +502,7 @@ export default function ReceiptFormScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="Optional remarks"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     value={currentLine.remarks}
                     onChangeText={(val) => setCurrentLine({ ...currentLine, remarks: val })}
                   />
@@ -534,6 +537,7 @@ export default function ReceiptFormScreen() {
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search..."
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoCapitalize="none"
@@ -641,6 +645,7 @@ const styles = StyleSheet.create({
     padding: Theme.spacing.sm,
     ...Theme.typography.body,
     backgroundColor: Theme.colors.background,
+    color: Theme.colors.text,
   },
   pickerContainer: {
     flexDirection: 'row',

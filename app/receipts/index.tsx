@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, Activ
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
+import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
 import { receiptService, ReceiptDto } from '../../services/receiptService';
 
@@ -50,7 +51,22 @@ export default function ReceiptsListScreen() {
           <Text style={styles.amount}>Rs. {item.amount.toLocaleString(undefined, { minimumFractionDigits: 0 })}</Text>
         </View>
         <View style={styles.cardFooter}>
-          <Text style={styles.createdBy}>By: {item.createdBy || 'System'}</Text>
+          <View style={{ flex: 1 }}>
+            <View style={styles.infoRow}>
+              <Ionicons name="add-circle-outline" size={13} color={Theme.colors.textSecondary} style={styles.infoIcon} />
+              <Text style={styles.infoText}>
+                Created: {item.createdBy || 'System'} | {dayjs(item.createdOn).format('DD-MMM-YYYY hh:mm A')}
+              </Text>
+            </View>
+            {!!item.lastModifiedBy && (
+              <View style={styles.infoRow}>
+                <Ionicons name="create-outline" size={13} color={Theme.colors.textSecondary} style={styles.infoIcon} />
+                <Text style={styles.infoText}>
+                  Modified: {item.lastModifiedBy} | {dayjs(item.lastModifiedOn).format('DD-MMM-YYYY hh:mm A')}
+                </Text>
+              </View>
+            )}
+          </View>
           <Ionicons name="chevron-forward" size={16} color={Theme.colors.textSecondary} />
         </View>
       </TouchableOpacity>
@@ -152,10 +168,18 @@ const styles = StyleSheet.create({
     borderTopColor: Theme.colors.background,
     paddingTop: Theme.spacing.xs,
   },
-  createdBy: {
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  infoIcon: {
+    marginRight: 4,
+  },
+  infoText: {
     ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
-    fontStyle: 'italic',
+    fontSize: 11,
   },
   emptyContainer: {
     alignItems: 'center',

@@ -406,6 +406,7 @@ export default function SaleSupplyFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Additional remarks..."
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={description}
                 onChangeText={setDescription}
               />
@@ -428,6 +429,7 @@ export default function SaleSupplyFormScreen() {
               <TextInput
                 style={styles.linesSearchInput}
                 placeholder="Search line items by customer name or code..."
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={lineSearchQuery}
                 onChangeText={setLineSearchQuery}
                 autoCapitalize="none"
@@ -470,6 +472,8 @@ export default function SaleSupplyFormScreen() {
                     <Text style={styles.label}>Qty</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.qty)}
                       onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
                       keyboardType="numeric"
@@ -479,6 +483,8 @@ export default function SaleSupplyFormScreen() {
                     <Text style={styles.label}>Rate</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.rate)}
                       onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
                       keyboardType="numeric"
@@ -491,6 +497,8 @@ export default function SaleSupplyFormScreen() {
                     <Text style={styles.label}>Disc</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.discount)}
                       onChangeText={(val) => updateLine(line.seq, { discount: Number(val) || 0 })}
                       keyboardType="numeric"
@@ -500,6 +508,8 @@ export default function SaleSupplyFormScreen() {
                     <Text style={styles.label}>Add/Less</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.addLess)}
                       onChangeText={(val) => updateLine(line.seq, { addLess: Number(val) || 0 })}
                       keyboardType="numeric"
@@ -564,6 +574,7 @@ export default function SaleSupplyFormScreen() {
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search..."
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoCapitalize="none"
@@ -708,6 +719,7 @@ const styles = StyleSheet.create({
     padding: Theme.spacing.sm,
     ...Theme.typography.body,
     backgroundColor: Theme.colors.background,
+    color: Theme.colors.text,
   },
   selector: {
     flexDirection: 'row',

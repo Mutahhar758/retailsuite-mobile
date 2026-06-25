@@ -367,6 +367,7 @@ export default function BulkReceiptScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Defaults to: Monthly Bill Collection for [Month]"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={remarks}
                 onChangeText={setRemarks}
               />
@@ -454,6 +455,7 @@ export default function BulkReceiptScreen() {
                         keyboardType="numeric"
                         editable={item.selected}
                         placeholder={item.balance.toString()}
+                        placeholderTextColor={Theme.colors.textSecondary}
                         value={item.paymentAmount.toString()}
                         onChangeText={(val) => handlePaymentAmountChange(item.accountId, val)}
                       />
@@ -511,6 +513,7 @@ export default function BulkReceiptScreen() {
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Search..."
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   autoCapitalize="none"
@@ -668,6 +671,7 @@ const styles = StyleSheet.create({
     padding: Theme.spacing.sm,
     ...Theme.typography.body,
     backgroundColor: Theme.colors.background,
+    color: Theme.colors.text,
   },
   pickerContainer: {
     flexDirection: 'row',
