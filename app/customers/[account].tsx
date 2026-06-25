@@ -202,6 +202,7 @@ export default function CustomerFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Enter customer name"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={title}
                 onChangeText={setTitle}
               />
@@ -212,6 +213,7 @@ export default function CustomerFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Enter email address"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
@@ -225,6 +227,7 @@ export default function CustomerFormScreen() {
                 <TextInput
                   style={styles.textInput}
                   placeholder="Primary phone"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={phone1}
                   onChangeText={setPhone1}
                   keyboardType="phone-pad"
@@ -235,6 +238,7 @@ export default function CustomerFormScreen() {
                 <TextInput
                   style={styles.textInput}
                   placeholder="Secondary phone"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={phone2}
                   onChangeText={setPhone2}
                   keyboardType="phone-pad"
@@ -247,6 +251,7 @@ export default function CustomerFormScreen() {
               <TextInput
                 style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
                 placeholder="Full address"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={address}
                 onChangeText={setAddress}
                 multiline
@@ -262,6 +267,7 @@ export default function CustomerFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Enter CNIC"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={cnic}
                 onChangeText={setCnic}
                 keyboardType="numeric"
@@ -274,6 +280,7 @@ export default function CustomerFormScreen() {
                 <TextInput
                   style={styles.textInput}
                   placeholder="Bank IBAN"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={iban}
                   onChangeText={setIban}
                 />
@@ -283,6 +290,7 @@ export default function CustomerFormScreen() {
                 <TextInput
                   style={styles.textInput}
                   placeholder="Fax number"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={fax}
                   onChangeText={setFax}
                 />
@@ -294,6 +302,7 @@ export default function CustomerFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Number for SMS alerts"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={smsNumber}
                 onChangeText={setSmsNumber}
                 keyboardType="phone-pad"
@@ -410,6 +419,7 @@ const styles = StyleSheet.create({
     padding: Theme.spacing.sm,
     ...Theme.typography.body,
     backgroundColor: Theme.colors.background,
+    color: Theme.colors.text,
   },
   row: {
     flexDirection: 'row',

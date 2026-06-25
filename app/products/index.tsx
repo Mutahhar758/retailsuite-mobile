@@ -105,6 +105,7 @@ export default function ProductsListScreen() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search by title, barcode, key..."
+          placeholderTextColor={Theme.colors.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
           clearButtonMode="while-editing"

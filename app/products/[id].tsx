@@ -300,6 +300,7 @@ export default function ProductFormScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="Scan or enter barcode"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     value={barcode}
                     onChangeText={setBarcode}
                   />
@@ -328,6 +329,7 @@ export default function ProductFormScreen() {
                 <TextInput
                   style={styles.textInput}
                   placeholder="Quick search key"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   value={itemKey}
                   onChangeText={setItemKey}
                 />
@@ -339,6 +341,7 @@ export default function ProductFormScreen() {
               <TextInput
                 style={styles.textInput}
                 placeholder="Enter full product name"
+                placeholderTextColor={Theme.colors.textSecondary}
                 value={title}
                 onChangeText={setTitle}
               />
@@ -369,6 +372,8 @@ export default function ProductFormScreen() {
                     <Text style={styles.label}>Primary Rate (Rs.)</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       keyboardType="numeric"
                       value={priRate}
                       onChangeText={setPriRate}
@@ -396,6 +401,8 @@ export default function ProductFormScreen() {
                     <Text style={styles.label}>Secondary Rate (Rs.)</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       keyboardType="numeric"
                       value={secRate}
                       onChangeText={setSecRate}
@@ -423,6 +430,8 @@ export default function ProductFormScreen() {
                     <Text style={styles.label}>Quantity in Pack</Text>
                     <TextInput
                       style={styles.textInput}
+                      placeholder="1"
+                      placeholderTextColor={Theme.colors.textSecondary}
                       keyboardType="numeric"
                       value={qtyInPack}
                       onChangeText={setQtyInPack}
@@ -435,6 +444,8 @@ export default function ProductFormScreen() {
                 <Text style={styles.label}>Rate (Rs.) *</Text>
                 <TextInput
                   style={styles.textInput}
+                  placeholder="0.00"
+                  placeholderTextColor={Theme.colors.textSecondary}
                   keyboardType="numeric"
                   value={priRate}
                   onChangeText={setPriRate}
@@ -452,6 +463,7 @@ export default function ProductFormScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="0.00"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     keyboardType="numeric"
                     value={opnStock}
                     onChangeText={setOpnStock}
@@ -462,6 +474,7 @@ export default function ProductFormScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="0.00"
+                    placeholderTextColor={Theme.colors.textSecondary}
                     keyboardType="numeric"
                     value={opnRate}
                     onChangeText={setOpnRate}
@@ -577,6 +590,7 @@ const styles = StyleSheet.create({
     ...Theme.typography.body,
     backgroundColor: Theme.colors.background,
     height: 48,
+    color: Theme.colors.text,
   },
   row: {
     flexDirection: 'row',
