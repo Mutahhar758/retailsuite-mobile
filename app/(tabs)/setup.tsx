@@ -47,6 +47,22 @@ export default function SetupScreen() {
             <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
           </TouchableOpacity>
         </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(400).duration(600)}>
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/products')}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.secondary + '20' }]}>
+              <Ionicons name="cube-outline" size={32} color={Theme.colors.secondary} />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Products</Text>
+              <Text style={styles.cardDesc}>Manage your product catalog</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
