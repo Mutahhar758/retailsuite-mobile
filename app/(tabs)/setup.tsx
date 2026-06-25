@@ -31,6 +31,22 @@ export default function SetupScreen() {
             <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
           </TouchableOpacity>
         </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(300).duration(600)}>
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/vendors')}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+              <Ionicons name="business-outline" size={32} color={Theme.colors.primary} />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Vendors</Text>
+              <Text style={styles.cardDesc}>Manage your vendor accounts</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
