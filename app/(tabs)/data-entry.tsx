@@ -73,6 +73,21 @@ export default function DataEntryScreen() {
             <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
           </TouchableOpacity>
 
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/purchases' as any)}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+              <Ionicons name="cart-outline" size={32} color={Theme.colors.primary} />
+            </View>
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Purchase</Text>
+              <Text style={styles.cardDesc}>View and manage purchase vouchers</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
+
+
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
