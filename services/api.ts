@@ -48,7 +48,21 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401) {
+      // Skip interceptor redirect/suppression for login and refresh requests
+      const isAuthRequest = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/refresh');
+      if (isAuthRequest) {
+        return Promise.reject(error);
+      }
+
+      const { refreshToken, logout, setTokens } = useAuthStore.getState();
+
+      // If it's already a retry or we don't have a refresh token, log out immediately and suppress the error
+      if (originalRequest._retry || !refreshToken) {
+        logout();
+        return new Promise(() => {});
+      }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -59,18 +73,14 @@ api.interceptors.response.use(
             }
             return api(originalRequest);
           })
-          .catch(err => Promise.reject(err));
+          .catch(() => {
+            // When refresh fails and the queue is rejected, return pending promise to suppress error
+            return new Promise(() => {});
+          });
       }
 
       originalRequest._retry = true;
       isRefreshing = true;
-
-      const { refreshToken, logout, setTokens } = useAuthStore.getState();
-
-      if (!refreshToken) {
-        logout();
-        return Promise.reject(error);
-      }
 
       try {
         const response = await axios.post('https://retailer-api.bizgripsolutions.com/api/auth/refresh', {
@@ -92,7 +102,7 @@ api.interceptors.response.use(
       } catch (err) {
         processQueue(err, null);
         logout();
-        return Promise.reject(err);
+        return new Promise(() => {});
       } finally {
         isRefreshing = false;
       }

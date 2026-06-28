@@ -77,7 +77,7 @@ export default function ProductsListScreen() {
               <View style={styles.row}>
                 <View style={styles.infoCol}>
                   <Text style={styles.labelText}>Category</Text>
-                  <Text style={styles.valueText}>{item.itemCategoryCode}</Text>
+                  <Text style={styles.valueText}>{item.itemCategoryTitle || item.itemCategoryCode}</Text>
                 </View>
                 <View style={styles.infoCol}>
                   <Text style={styles.labelText}>Rate</Text>

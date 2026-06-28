@@ -4,6 +4,7 @@ export interface Item {
   id: string;
   barcode?: string;
   itemCategoryCode: string;
+  itemCategoryTitle?: string;
   title: string;
   itemKey?: string;
   priRate: number;
