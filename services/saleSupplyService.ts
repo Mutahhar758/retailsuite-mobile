@@ -28,6 +28,9 @@ export interface SaleSupplyLine {
   discount: number;
   addLess: number;
   amount: number;
+  secQty?: number;
+  secRate?: number;
+  secUnit?: string;
   createdBy: string;
   createdOn: string;
   lastModifiedBy?: string;
@@ -37,11 +40,14 @@ export interface SaleSupplyLine {
 export interface SaleSupplyLineRequest {
   seq: number;
   customerId: string;
-  unit: string;
+  unit?: string;
   qty: number;
   rate: number;
   discount: number;
   addLess: number;
+  secQty?: number;
+  secRate?: number;
+  secUnit?: string;
 }
 
 export interface SaleSupplyCreateRequest {

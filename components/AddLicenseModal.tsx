@@ -29,12 +29,16 @@ export const AddLicenseModal: React.FC<Props> = ({ visible, onClose, onSuccess }
       const tenantData = response.data?.body || response.data;
       const tenantIdentifier = tenantData?.identifier || tenantData?.id;
       const name = tenantData?.name || 'Unknown Organization';
+      const hasSupplyFeature = tenantData?.hasSupplyFeature ?? false;
+      const hasSecondaryQty = tenantData?.hasSecondaryQty ?? false;
 
       if (tenantIdentifier) {
         addLicense({
           licenseKey: licenseKey.trim(),
           tenantIdentifier,
           name,
+          hasSupplyFeature,
+          hasSecondaryQty,
         });
         Alert.alert('Success', `Successfully added license for ${name}`);
         setLicenseKey('');

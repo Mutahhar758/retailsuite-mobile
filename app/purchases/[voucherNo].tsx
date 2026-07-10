@@ -13,11 +13,16 @@ import { purchaseService, PurchaseLineRequest } from '../../services/purchaseSer
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item, Unit } from '../../services/inventoryService';
+import { useAppStore } from '../../store/appStore';
 
 export default function PurchaseFormScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
   const router = useRouter();
   const isEdit = voucherNo && voucherNo !== 'new' && mode !== 'copy';
+
+  const { currentTenantIdentifier, licenses } = useAppStore();
+  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const hasSecondaryQty = currentOrg?.hasSecondaryQty ?? false;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,7 +96,10 @@ export default function PurchaseFormScreen() {
           unit: d.unit || '',
           qty: d.qty,
           rate: d.rate,
-          addLess: d.addLess
+          addLess: d.addLess,
+          secQty: d.secQty,
+          secRate: d.secRate,
+          secUnit: d.secUnit
         }));
         setLines(mappedLines);
       }
@@ -118,15 +126,22 @@ export default function PurchaseFormScreen() {
       const selectedItem = items.find(i => i.id === val);
       let defaultUnit = '';
       let defaultRate = 0;
+      let secUnit = '';
+      let secRate = 0;
       if (selectedItem) {
         defaultUnit = selectedItem.defaultUnit || selectedItem.primaryUnit || '';
-        defaultRate = (defaultUnit === selectedItem.secondaryUnit ? selectedItem.secRate : selectedItem.priRate) || 0;
+        defaultRate = selectedItem.priRate || 0;
+        secUnit = selectedItem.secondaryUnit || '';
+        secRate = selectedItem.secRate || 0;
       }
       setCurrentLine(prev => ({
         ...prev,
         itemId: val,
         unit: defaultUnit,
-        rate: defaultRate
+        rate: defaultRate,
+        secUnit,
+        secRate,
+        secQty: 0
       }));
     } else if (selectModalType === 'unit') {
       const selectedItem = items.find(i => i.id === currentLine.itemId);
@@ -158,7 +173,9 @@ export default function PurchaseFormScreen() {
         unit: '',
         qty: 1,
         rate: 0,
-        addLess: 0
+        addLess: 0,
+        secQty: 0,
+        secRate: 0
       });
     }
     setLineModalVisible(true);
@@ -212,7 +229,10 @@ export default function PurchaseFormScreen() {
         unit: l.unit || undefined,
         qty: l.qty,
         rate: l.rate,
-        addLess: l.addLess
+        addLess: l.addLess,
+        secQty: l.secQty || 0,
+        secRate: l.secRate || 0,
+        secUnit: l.secUnit || undefined
       }));
 
       const request = {
@@ -270,7 +290,7 @@ export default function PurchaseFormScreen() {
   };
 
   const totalAmount = useMemo(() => {
-    return lines.reduce((sum, l) => sum + (l.qty * l.rate + l.addLess), 0);
+    return lines.reduce((sum, l) => sum + (l.qty * l.rate + l.addLess + ((l.secQty ?? 0) * (l.secRate ?? 0))), 0);
   }, [lines]);
 
   if (loading) {
@@ -373,14 +393,18 @@ export default function PurchaseFormScreen() {
               lines.map((line) => {
                 const itemTitle = items.find(i => i.id === line.itemId)?.title || line.itemId;
                 const unitTitle = units.find(u => u.code === line.unit)?.title || line.unit || '';
-                const lineTotal = line.qty * line.rate + line.addLess;
+                const lineTotal = line.qty * line.rate + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
                 return (
                   <View key={line.seq} style={styles.lineCard}>
                     <View style={styles.lineInfo}>
                       <Text style={styles.lineAccount} numberOfLines={1}>{itemTitle}</Text>
                       <Text style={styles.lineAmount}>Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
                       <Text style={styles.lineDetail}>
-                        Qty: {line.qty} {unitTitle} @ Rs. {line.rate.toLocaleString()} 
+                        {hasSecondaryQty ? (
+                          `Single Qty: ${line.qty} | Pack Qty: ${line.secQty ?? 0} @ Rs. ${(line.secRate ?? 0).toLocaleString()}`
+                        ) : (
+                          `Qty: ${line.qty} ${unitTitle} @ Rs. ${line.rate.toLocaleString()}`
+                        )}
                         {line.addLess !== 0 ? ` | Add/Less: Rs. ${line.addLess.toLocaleString()}` : ''}
                       </Text>
                     </View>
@@ -451,22 +475,24 @@ export default function PurchaseFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Unit</Text>
-                  <TouchableOpacity 
-                    style={styles.pickerContainer}
-                    onPress={() => openSelectModal('unit')}
-                    disabled={!currentLine.itemId}
-                  >
-                    <Text style={[styles.selectorText, !currentLine.unit && { color: Theme.colors.textSecondary }]}>
-                      {currentLine.unit ? units.find(u => u.code === currentLine.unit)?.title || currentLine.unit : 'Select Unit'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
+                {!hasSecondaryQty && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Unit</Text>
+                    <TouchableOpacity 
+                      style={styles.pickerContainer}
+                      onPress={() => openSelectModal('unit')}
+                      disabled={!currentLine.itemId}
+                    >
+                      <Text style={[styles.selectorText, !currentLine.unit && { color: Theme.colors.textSecondary }]}>
+                        {currentLine.unit ? units.find(u => u.code === currentLine.unit)?.title || currentLine.unit : 'Select Unit'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Quantity *</Text>
+                  <Text style={styles.label}>{hasSecondaryQty ? 'Single Quantity *' : 'Quantity *'}</Text>
                   <TextInput
                     style={styles.textInput}
                     keyboardType="numeric"
@@ -478,7 +504,7 @@ export default function PurchaseFormScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Rate *</Text>
+                  <Text style={styles.label}>{hasSecondaryQty ? 'Single Rate *' : 'Rate *'}</Text>
                   <TextInput
                     style={styles.textInput}
                     keyboardType="numeric"
@@ -488,6 +514,34 @@ export default function PurchaseFormScreen() {
                     onChangeText={(val) => setCurrentLine({ ...currentLine, rate: parseFloat(val) || 0 })}
                   />
                 </View>
+
+                {hasSecondaryQty && (
+                  <>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Pack Quantity</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        keyboardType="numeric"
+                        placeholder="Enter pack quantity"
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={currentLine.secQty !== undefined ? currentLine.secQty.toString() : '0'}
+                        onChangeText={(val) => setCurrentLine({ ...currentLine, secQty: parseFloat(val) || 0 })}
+                      />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Pack Rate</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        keyboardType="numeric"
+                        placeholder="Enter pack rate"
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={currentLine.secRate !== undefined ? currentLine.secRate.toString() : '0'}
+                        onChangeText={(val) => setCurrentLine({ ...currentLine, secRate: parseFloat(val) || 0 })}
+                      />
+                    </View>
+                  </>
+                )}
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Add / Less Amount</Text>

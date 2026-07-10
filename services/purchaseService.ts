@@ -27,6 +27,9 @@ export interface PurchaseLineDto {
   rate: number;
   addLess: number;
   amount: number;
+  secQty?: number;
+  secRate?: number;
+  secUnit?: string;
   createdBy: string;
   createdOn: string;
   lastModifiedBy?: string;
@@ -40,6 +43,9 @@ export interface PurchaseLineRequest {
   qty: number;
   rate: number;
   addLess: number;
+  secQty?: number;
+  secRate?: number;
+  secUnit?: string;
 }
 
 export interface PurchaseCreateRequest {

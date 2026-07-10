@@ -14,12 +14,17 @@ import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/cha
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item, Unit } from '../../services/inventoryService';
 import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderService';
+import { useAppStore } from '../../store/appStore';
 
 export default function SaleSupplyFormScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
   const router = useRouter();
   
   const isEdit = voucherNo !== 'new' && mode !== 'copy';
+
+  const { currentTenantIdentifier, licenses } = useAppStore();
+  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const hasSecondaryQty = currentOrg?.hasSecondaryQty ?? false;
 
   const [loading, setLoading] = useState(voucherNo !== 'new');
   const [saving, setSaving] = useState(false);
@@ -41,7 +46,7 @@ export default function SaleSupplyFormScreen() {
 
   // Lines State
   const [lines, setLines] = useState<SaleSupplyLineRequest[]>([
-    { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0 }
+    { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0, secQty: 0, secRate: 0 }
   ]);
 
   // Modal State for Selectors
@@ -98,7 +103,10 @@ export default function SaleSupplyFormScreen() {
           qty: d.qty,
           rate: d.rate,
           discount: d.discount,
-          addLess: d.addLess
+          addLess: d.addLess,
+          secQty: d.secQty,
+          secRate: d.secRate,
+          secUnit: d.secUnit
         }));
         setLines(mappedLines);
       }
@@ -128,7 +136,10 @@ export default function SaleSupplyFormScreen() {
           qty: 1,
           rate: defaultRate,
           discount: 0,
-          addLess: 0
+          addLess: 0,
+          secQty: 0,
+          secRate: selectedItem?.secRate || 0,
+          secUnit: selectedItem?.secondaryUnit || ''
         }));
         setLines(newLines);
         Alert.alert('Success', `Loaded ${newLines.length} customers from ${order.title}`);
@@ -145,18 +156,18 @@ export default function SaleSupplyFormScreen() {
     
     let defaultUnit = '';
     let defaultRate = 0;
+    let secUnit = '';
+    let secRate = 0;
     const selectedItem = items.find(i => i.id === itemId);
     
     if (selectedItem) {
       defaultUnit = selectedItem.defaultUnit || selectedItem.primaryUnit || '';
-      if (defaultUnit === selectedItem.primaryUnit) {
-        defaultRate = selectedItem.priRate || 0;
-      } else if (defaultUnit === selectedItem.secondaryUnit) {
-        defaultRate = selectedItem.secRate || 0;
-      }
+      defaultRate = selectedItem.priRate || 0;
+      secUnit = selectedItem.secondaryUnit || '';
+      secRate = selectedItem.secRate || 0;
     }
     
-    setLines([...lines, { seq: nextSeq, customerId: '', unit: defaultUnit, qty: 1, rate: defaultRate, discount: 0, addLess: 0 }]);
+    setLines([...lines, { seq: nextSeq, customerId: '', unit: defaultUnit, qty: 1, rate: defaultRate, discount: 0, addLess: 0, secQty: 0, secRate, secUnit }]);
   };
 
   const removeLine = (seq: number) => {
@@ -228,7 +239,7 @@ export default function SaleSupplyFormScreen() {
 
   const totalAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
-      const amt = (l.qty * (l.rate - l.discount)) + l.addLess;
+      const amt = (l.qty * (l.rate - l.discount)) + l.addLess + ((l.secQty ?? 0) * (l.secRate ?? 0));
       return sum + amt;
     }, 0);
   }, [lines]);
@@ -254,7 +265,10 @@ export default function SaleSupplyFormScreen() {
         qty: l.qty,
         rate: l.rate,
         discount: l.discount,
-        addLess: l.addLess
+        addLess: l.addLess,
+        secQty: l.secQty || 0,
+        secRate: l.secRate || 0,
+        secUnit: l.secUnit || undefined
       }));
 
       const request = {
@@ -443,7 +457,7 @@ export default function SaleSupplyFormScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = (line.qty * (line.rate - line.discount)) + line.addLess;
+            const lineAmount = (line.qty * (line.rate - line.discount)) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
@@ -461,36 +475,89 @@ export default function SaleSupplyFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Unit</Text>
-                    <TouchableOpacity style={[styles.selector, { paddingHorizontal: 6 }]} onPress={() => openSelector('unit', line.seq)}>
-                      <Text style={[styles.selectorText, !line.unit && styles.placeholder]} numberOfLines={1}>{getUnitName(line.unit)}</Text>
-                    </TouchableOpacity>
+                {!hasSecondaryQty ? (
+                  <View style={styles.row}>
+                    <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                      <Text style={styles.label}>Unit</Text>
+                      <TouchableOpacity style={[styles.selector, { paddingHorizontal: 6 }]} onPress={() => openSelector('unit', line.seq)}>
+                        <Text style={[styles.selectorText, !line.unit && styles.placeholder]} numberOfLines={1}>{getUnitName(line.unit)}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                      <Text style={styles.label}>Qty</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="0"
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={String(line.qty)}
+                        onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.label}>Rate</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="0.00"
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={String(line.rate)}
+                        onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
+                        keyboardType="numeric"
+                      />
+                    </View>
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Qty</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="0"
-                      placeholderTextColor={Theme.colors.textSecondary}
-                      value={String(line.qty)}
-                      onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Rate</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="0.00"
-                      placeholderTextColor={Theme.colors.textSecondary}
-                      value={String(line.rate)}
-                      onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </View>
+                ) : (
+                  <>
+                    <View style={styles.row}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                        <Text style={styles.label}>Single Qty</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.qty)}
+                          onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Single Rate</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0.00"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.rate)}
+                          onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.row}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                        <Text style={styles.label}>Pack Qty</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.secQty ?? 0)}
+                          onChangeText={(val) => updateLine(line.seq, { secQty: Number(val) || 0 })}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Pack Rate</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0.00"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.secRate ?? 0)}
+                          onChangeText={(val) => updateLine(line.seq, { secRate: Number(val) || 0 })}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </>
+                )}
 
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
