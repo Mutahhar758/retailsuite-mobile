@@ -23,6 +23,8 @@ interface AuthState {
   user: any | null;
   token: string | null;
   refreshToken: string | null;
+  isBiometricEnabled: boolean;
+  setBiometricEnabled: (enabled: boolean) => void;
   setTokens: (token: string, refreshToken: string) => void;
   login: (token: string, refreshToken: string, user: any) => void;
   logout: () => void;
@@ -37,6 +39,8 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       refreshToken: null,
+      isBiometricEnabled: false,
+      setBiometricEnabled: (enabled) => set({ isBiometricEnabled: enabled }),
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
       setTokens: (token, refreshToken) => set({ token, refreshToken }),

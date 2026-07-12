@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Theme } from '../../constants/theme';
@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { AddLicenseModal } from '../../components/AddLicenseModal';
 import api from '../../services/api';
+import { BiometricService } from '../../services/biometricService';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -16,9 +17,10 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
 
   const { licenses, currentTenantIdentifier, setCurrentTenant } = useAppStore();
-  const { setTokens, login } = useAuthStore();
+  const { login, isBiometricEnabled, setBiometricEnabled } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
@@ -26,6 +28,60 @@ export default function LoginScreen() {
       setIsModalVisible(true);
     }
   }, [licenses.length]);
+
+  const handleBiometricLogin = useCallback(async () => {
+    const supported = await BiometricService.isSupported();
+    if (!supported) return;
+
+    const authenticated = await BiometricService.authenticate('Scan your fingerprint or face to log in');
+    if (!authenticated) return;
+
+    const credentials = await BiometricService.getCredentials();
+    if (!credentials) {
+      Alert.alert('Error', 'No stored biometric credentials found. Please sign in manually.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      setCurrentTenant(credentials.tenantId);
+
+      const response = await api.post('/api/auth/login', {
+        login: credentials.username,
+        loginType: 'Username',
+        password: credentials.password
+      });
+
+      const body = response.data?.body || response.data;
+      if (body && (body.token || body.accessToken)) {
+        await BiometricService.saveCredentials(credentials.username, credentials.password, credentials.tenantId);
+        login(body.token || body.accessToken, body.refreshToken, { email: credentials.username });
+        router.replace('/(tabs)/dashboard');
+      } else {
+        Alert.alert('Error', 'Invalid response from server.');
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.metadata?.message || error.message || 'Biometric login failed';
+      Alert.alert('Biometric Login Failed', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [setCurrentTenant, login, router]);
+
+  useEffect(() => {
+    const checkBiometricSupport = async () => {
+      const supported = await BiometricService.isSupported();
+      setIsBiometricSupported(supported);
+
+      if (supported && isBiometricEnabled) {
+        const timer = setTimeout(() => {
+          handleBiometricLogin();
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    };
+    checkBiometricSupport();
+  }, [isBiometricEnabled, handleBiometricLogin]);
 
   const handleLogin = async () => {
     if (!currentTenantIdentifier) {
@@ -48,7 +104,39 @@ export default function LoginScreen() {
       const body = response.data?.body || response.data;
       if (body && (body.token || body.accessToken)) {
         login(body.token || body.accessToken, body.refreshToken, { email: username });
-        router.replace('/(tabs)/dashboard');
+
+        if (isBiometricSupported && !isBiometricEnabled) {
+          Alert.alert(
+            'Enable Biometric Login',
+            'Would you like to enable biometric (fingerprint/face) login for faster access next time?',
+            [
+              {
+                text: 'Maybe Later',
+                style: 'cancel',
+                onPress: () => router.replace('/(tabs)/dashboard')
+              },
+              {
+                text: 'Enable',
+                onPress: async () => {
+                  const saved = await BiometricService.saveCredentials(username, password, currentTenantIdentifier);
+                  if (saved) {
+                    setBiometricEnabled(true);
+                    Alert.alert('Enabled', 'Biometric login has been enabled successfully.', [
+                      { text: 'OK', onPress: () => router.replace('/(tabs)/dashboard') }
+                    ]);
+                  } else {
+                    router.replace('/(tabs)/dashboard');
+                  }
+                }
+              }
+            ]
+          );
+        } else {
+          if (isBiometricSupported && isBiometricEnabled) {
+            await BiometricService.saveCredentials(username, password, currentTenantIdentifier);
+          }
+          router.replace('/(tabs)/dashboard');
+        }
       } else {
         Alert.alert('Error', 'Invalid response from server.');
       }
@@ -142,13 +230,26 @@ export default function LoginScreen() {
           <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading || licenses.length === 0}>
-          {loading ? (
-            <ActivityIndicator color={Theme.colors.white} />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity style={[styles.button, { flex: 1 }]} onPress={handleLogin} disabled={loading || licenses.length === 0}>
+            {loading ? (
+              <ActivityIndicator color={Theme.colors.white} />
+            ) : (
+              <Text style={styles.buttonText}>Sign In</Text>
+            )}
+          </TouchableOpacity>
+
+          {isBiometricSupported && isBiometricEnabled && (
+            <TouchableOpacity 
+              style={styles.biometricButton} 
+              onPress={handleBiometricLogin}
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="finger-print-outline" size={28} color={Theme.colors.primary} />
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
+        </View>
       </Animated.View>
 
       <AddLicenseModal
@@ -279,6 +380,10 @@ const styles = StyleSheet.create({
     color: Theme.colors.primary,
     fontWeight: '600',
   },
+  buttonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   button: {
     backgroundColor: Theme.colors.primary,
     height: 54,
@@ -290,5 +395,17 @@ const styles = StyleSheet.create({
   buttonText: {
     color: Theme.colors.white,
     ...Theme.typography.h3,
+  },
+  biometricButton: {
+    backgroundColor: Theme.colors.background,
+    borderWidth: 1,
+    borderColor: Theme.colors.primary + '30',
+    width: 54,
+    height: 54,
+    borderRadius: Theme.radii.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: Theme.spacing.md,
+    ...Theme.shadows.sm,
   },
 });
