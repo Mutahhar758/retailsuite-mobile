@@ -27,6 +27,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
+    if (_hasHydrated && isAuthenticated) {
+      useAuthStore.getState().loadProfileAndPermissions();
+    }
+  }, [_hasHydrated, isAuthenticated]);
+
+  useEffect(() => {
     if (!navigationState?.key) return;
     if (!_hasHydrated) return;
 

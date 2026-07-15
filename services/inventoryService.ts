@@ -53,6 +53,11 @@ export const inventoryService = {
     return response.data.body as Item[];
   },
 
+  async getItemsLookup(categoryCode?: string) {
+    const response = await api.get('/api/inventory/items/lookup', { params: { itemCategoryCode: categoryCode } });
+    return response.data.body as Item[];
+  },
+
   async getById(id: string) {
     const response = await api.get(`/api/inventory/items/${id}`);
     return response.data.body as Item;
@@ -60,6 +65,11 @@ export const inventoryService = {
 
   async getUnits() {
     const response = await api.get('/api/units');
+    return response.data.body as Unit[];
+  },
+
+  async getUnitsLookup() {
+    const response = await api.get('/api/units/lookup');
     return response.data.body as Unit[];
   },
 

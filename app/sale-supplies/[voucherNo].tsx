@@ -70,9 +70,9 @@ export default function SaleSupplyFormScreen() {
     try {
       const [cusData, narData, itemData, unitData, orderData] = await Promise.all([
         chartOfAccountService.getCustomerAccounts(),
-        narrationService.getActiveNarrations(),
-        inventoryService.getItems(),
-        inventoryService.getUnits(),
+        narrationService.getActiveNarrationsLookup(),
+        inventoryService.getItemsLookup(),
+        inventoryService.getUnitsLookup(),
         supplyOrderService.getList()
       ]);
       setCustomers(cusData);
@@ -223,7 +223,7 @@ export default function SaleSupplyFormScreen() {
   const getSelectedItemName = () => items.find(i => i.id === itemId)?.title || 'Select Item';
   const getSelectedNarrationName = () => narrations.find(n => n.code === narration)?.title || 'Select Narration';
   const getCustomerName = (id: string) => customers.find(c => c.account === id)?.title || 'Select Customer';
-  const getUnitName = (code: string) => units.find(u => u.code === code)?.title || 'Select Unit';
+  const getUnitName = (code?: string) => units.find(u => u.code === code)?.title || 'Select Unit';
 
   const filteredLines = useMemo(() => {
     if (!lineSearchQuery.trim()) {

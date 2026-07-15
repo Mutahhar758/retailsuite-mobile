@@ -56,8 +56,8 @@ export default function ProductFormScreen() {
       setLoading(true);
       // Fetch Lookups
       const [categoriesData, unitsData] = await Promise.all([
-        itemCategoryService.getActiveItemCategories(),
-        inventoryService.getUnits()
+        itemCategoryService.getActiveItemCategoriesLookup(),
+        inventoryService.getUnitsLookup()
       ]);
       setCategories(categoriesData);
       setUnits(unitsData);

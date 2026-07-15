@@ -4,9 +4,22 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
+import { useAuthStore } from '../../store/authStore';
 
 export default function SetupScreen() {
   const router = useRouter();
+  const { user, permissions } = useAuthStore();
+
+  const hasPermission = (action: string, resource: string) => {
+    if (user?.isOwner) return true;
+    const requiredPermission = `Permissions.${resource}.${action}`;
+    return permissions.includes(requiredPermission);
+  };
+
+  const showCustomers = hasPermission('View', 'Customers');
+  const showVendors = hasPermission('View', 'Suppliers');
+  const showProducts = hasPermission('View', 'InventoryItems');
+  const noSetupVisible = !showCustomers && !showVendors && !showProducts;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -16,53 +29,66 @@ export default function SetupScreen() {
           <Text style={styles.subtitle}>System configuration and masters</Text>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(200).duration(600)}>
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/customers')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.secondary + '20' }]}>
-              <Ionicons name="people-outline" size={32} color={Theme.colors.secondary} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Customers</Text>
-              <Text style={styles.cardDesc}>Manage your customer accounts</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </Animated.View>
+        {showCustomers && (
+          <Animated.View entering={FadeInDown.delay(200).duration(600)}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/customers')}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.secondary + '20' }]}>
+                <Ionicons name="people-outline" size={32} color={Theme.colors.secondary} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Customers</Text>
+                <Text style={styles.cardDesc}>Manage your customer accounts</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
-        <Animated.View entering={FadeInDown.delay(300).duration(600)}>
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/vendors')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
-              <Ionicons name="business-outline" size={32} color={Theme.colors.primary} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Vendors</Text>
-              <Text style={styles.cardDesc}>Manage your vendor accounts</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </Animated.View>
+        {showVendors && (
+          <Animated.View entering={FadeInDown.delay(300).duration(600)}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/vendors')}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+                <Ionicons name="business-outline" size={32} color={Theme.colors.primary} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Vendors</Text>
+                <Text style={styles.cardDesc}>Manage your vendor accounts</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
-        <Animated.View entering={FadeInDown.delay(400).duration(600)}>
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/products')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.secondary + '20' }]}>
-              <Ionicons name="cube-outline" size={32} color={Theme.colors.secondary} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Products</Text>
-              <Text style={styles.cardDesc}>Manage your product catalog</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </Animated.View>
+        {showProducts && (
+          <Animated.View entering={FadeInDown.delay(400).duration(600)}>
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/products')}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.secondary + '20' }]}>
+                <Ionicons name="cube-outline" size={32} color={Theme.colors.secondary} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Products</Text>
+                <Text style={styles.cardDesc}>Manage your product catalog</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {noSetupVisible && (
+          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.noAccessContainer}>
+            <Ionicons name="lock-closed-outline" size={48} color={Theme.colors.textSecondary} />
+            <Text style={styles.noAccessText}>You do not have access to any setups.</Text>
+          </Animated.View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -117,5 +143,16 @@ const styles = StyleSheet.create({
     ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
     marginTop: 2,
+  },
+  noAccessContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Theme.spacing.xl * 2,
+  },
+  noAccessText: {
+    ...Theme.typography.body,
+    color: Theme.colors.textSecondary,
+    marginTop: Theme.spacing.md,
+    textAlign: 'center',
   },
 });

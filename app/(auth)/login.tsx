@@ -56,6 +56,7 @@ export default function LoginScreen() {
       if (body && (body.token || body.accessToken)) {
         await BiometricService.saveCredentials(credentials.username, credentials.password, credentials.tenantId);
         login(body.token || body.accessToken, body.refreshToken, { email: credentials.username });
+        await useAuthStore.getState().loadProfileAndPermissions();
         router.replace('/(tabs)/dashboard');
       } else {
         Alert.alert('Error', 'Invalid response from server.');
@@ -104,6 +105,7 @@ export default function LoginScreen() {
       const body = response.data?.body || response.data;
       if (body && (body.token || body.accessToken)) {
         login(body.token || body.accessToken, body.refreshToken, { email: username });
+        await useAuthStore.getState().loadProfileAndPermissions();
 
         if (isBiometricSupported && !isBiometricEnabled) {
           Alert.alert(

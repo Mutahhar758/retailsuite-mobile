@@ -12,5 +12,10 @@ export const itemCategoryService = {
   async getActiveItemCategories() {
     const response = await api.get('/api/itemcategories');
     return response.data.body as ItemCategoryDto[];
+  },
+
+  async getActiveItemCategoriesLookup() {
+    const response = await api.get('/api/itemcategories/lookup');
+    return response.data.body as ItemCategoryDto[];
   }
 };

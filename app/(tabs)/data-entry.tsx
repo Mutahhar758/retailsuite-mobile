@@ -4,9 +4,23 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
+import { useAuthStore } from '../../store/authStore';
 
 export default function DataEntryScreen() {
   const router = useRouter();
+  const { user, permissions } = useAuthStore();
+
+  const hasPermission = (action: string, resource: string) => {
+    if (user?.isOwner) return true;
+    const requiredPermission = `Permissions.${resource}.${action}`;
+    return permissions.includes(requiredPermission);
+  };
+
+  const showReceipts = hasPermission('View', 'Receipts');
+  const showSaleSupplies = hasPermission('View', 'SaleSupplies');
+  const showPayments = hasPermission('View', 'Payments');
+  const showPurchases = hasPermission('View', 'Purchases');
+  const noDataEntryVisible = !showReceipts && !showSaleSupplies && !showPayments && !showPurchases;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -17,77 +31,92 @@ export default function DataEntryScreen() {
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(200).duration(600)}>
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/receipts')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
-              <Ionicons name="document-text-outline" size={32} color={Theme.colors.primary} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Receipt</Text>
-              <Text style={styles.cardDesc}>View and manage cash or bank receipts</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
+          {showReceipts && (
+            <>
+              <TouchableOpacity 
+                style={styles.card}
+                onPress={() => router.push('/receipts')}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+                  <Ionicons name="document-text-outline" size={32} color={Theme.colors.primary} />
+                </View>
+                <View style={styles.cardContent}>
+                  <Text style={styles.cardTitle}>Receipt</Text>
+                  <Text style={styles.cardDesc}>View and manage cash or bank receipts</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/receipts/bulk')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.success + '20' }]}>
-              <Ionicons name="documents-outline" size={32} color={Theme.colors.success} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Bulk Receipt</Text>
-              <Text style={styles.cardDesc}>Create receipts for multiple customers at once</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.card}
+                onPress={() => router.push('/receipts/bulk')}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: Theme.colors.success + '20' }]}>
+                  <Ionicons name="documents-outline" size={32} color={Theme.colors.success} />
+                </View>
+                <View style={styles.cardContent}>
+                  <Text style={styles.cardTitle}>Bulk Receipt</Text>
+                  <Text style={styles.cardDesc}>Create receipts for multiple customers at once</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </>
+          )}
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/sale-supplies')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.warning + '20' }]}>
-              <Ionicons name="car-outline" size={32} color={Theme.colors.warning} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Sale Supply</Text>
-              <Text style={styles.cardDesc}>Supply items to multiple customers</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
+          {showSaleSupplies && (
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/sale-supplies')}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.warning + '20' }]}>
+                <Ionicons name="car-outline" size={32} color={Theme.colors.warning} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Sale Supply</Text>
+                <Text style={styles.cardDesc}>Supply items to multiple customers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/payments')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.danger + '20' }]}>
-              <Ionicons name="wallet-outline" size={32} color={Theme.colors.danger} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Payment</Text>
-              <Text style={styles.cardDesc}>View and manage cash or bank payments</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
+          {showPayments && (
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/payments')}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.danger + '20' }]}>
+                <Ionicons name="wallet-outline" size={32} color={Theme.colors.danger} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Payment</Text>
+                <Text style={styles.cardDesc}>View and manage cash or bank payments</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
 
-          <TouchableOpacity 
-            style={styles.card}
-            onPress={() => router.push('/purchases' as any)}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
-              <Ionicons name="cart-outline" size={32} color={Theme.colors.primary} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Purchase</Text>
-              <Text style={styles.cardDesc}>View and manage purchase vouchers</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
+          {showPurchases && (
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/purchases' as any)}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+                <Ionicons name="cart-outline" size={32} color={Theme.colors.primary} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Purchase</Text>
+                <Text style={styles.cardDesc}>View and manage purchase vouchers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
 
-
+          {noDataEntryVisible && (
+            <View style={styles.noAccessContainer}>
+              <Ionicons name="lock-closed-outline" size={48} color={Theme.colors.textSecondary} />
+              <Text style={styles.noAccessText}>You do not have access to any data entries.</Text>
+            </View>
+          )}
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -143,5 +172,16 @@ const styles = StyleSheet.create({
     ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
     marginTop: 2,
+  },
+  noAccessContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Theme.spacing.xl * 2,
+  },
+  noAccessText: {
+    ...Theme.typography.body,
+    color: Theme.colors.textSecondary,
+    marginTop: Theme.spacing.md,
+    textAlign: 'center',
   },
 });

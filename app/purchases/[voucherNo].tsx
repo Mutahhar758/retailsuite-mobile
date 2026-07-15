@@ -60,9 +60,9 @@ export default function PurchaseFormScreen() {
     try {
       const [sups, narrs, itms, unts] = await Promise.all([
         chartOfAccountService.getSupplierAccounts(),
-        narrationService.getActiveNarrations(),
-        inventoryService.getItems(),
-        inventoryService.getUnits()
+        narrationService.getActiveNarrationsLookup(),
+        inventoryService.getItemsLookup(),
+        inventoryService.getUnitsLookup()
       ]);
       setSuppliers(sups);
       setNarrations(narrs);

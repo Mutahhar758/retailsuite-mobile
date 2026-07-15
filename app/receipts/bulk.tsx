@@ -63,7 +63,7 @@ export default function BulkReceiptScreen() {
     try {
       const [cbAccs, narrs, custAccs, orders] = await Promise.all([
         chartOfAccountService.getCashBankAccounts(),
-        narrationService.getActiveNarrations(),
+        narrationService.getActiveNarrationsLookup(),
         chartOfAccountService.getCustomerAccounts(),
         supplyOrderService.getList()
       ]);

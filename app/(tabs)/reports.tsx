@@ -11,11 +11,30 @@ import dayjs from 'dayjs';
 import { reportService, AccountStatementLine, CustomerBillResponse } from '../../services/reportService';
 import { chartOfAccountService, ChartOfAccountDto, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuthStore } from '../../store/authStore';
 
 export default function ReportsScreen() {
+  const { user, permissions } = useAuthStore();
+  const hasPermission = (action: string, resource: string) => {
+    if (user?.isOwner) return true;
+    const requiredPermission = `Permissions.${resource}.${action}`;
+    return permissions.includes(requiredPermission);
+  };
+
   const ledgerRef = useRef<any>(null);
   const receiptRef = useRef<any>(null);
   const [activeTab, setActiveTab] = useState<'account' | 'customer'>('account');
+
+  if (!hasPermission('View', 'Reports')) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.noAccessContainer}>
+          <Ionicons name="lock-closed-outline" size={48} color={Theme.colors.textSecondary} />
+          <Text style={styles.noAccessText}>You do not have permission to view reports.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Common State
   const [fromDate, setFromDate] = useState(dayjs().startOf('month').toDate());
@@ -642,4 +661,16 @@ const styles = StyleSheet.create({
   
   receiptFooter: { alignItems: 'center', marginTop: 20 },
   receiptFooterText: { fontSize: 11, fontStyle: 'italic', color: '#888' },
+  noAccessContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Theme.spacing.xl,
+  },
+  noAccessText: {
+    ...Theme.typography.body,
+    color: Theme.colors.textSecondary,
+    marginTop: Theme.spacing.md,
+    textAlign: 'center',
+  },
 });

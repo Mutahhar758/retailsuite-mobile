@@ -56,7 +56,7 @@ export default function PaymentFormScreen() {
       const [cbAccs, detAccs, narrs] = await Promise.all([
         chartOfAccountService.getCashBankAccounts(),
         chartOfAccountService.getDetailAccounts(),
-        narrationService.getActiveNarrations()
+        narrationService.getActiveNarrationsLookup()
       ]);
       setCashBankAccounts(cbAccs);
       setDetailAccounts(detAccs);

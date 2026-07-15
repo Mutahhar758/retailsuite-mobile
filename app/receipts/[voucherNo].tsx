@@ -57,7 +57,7 @@ export default function ReceiptFormScreen() {
       const [cbAccs, detAccs, narrs] = await Promise.all([
         chartOfAccountService.getCashBankAccounts(),
         chartOfAccountService.getDetailAccounts(),
-        narrationService.getActiveNarrations()
+        narrationService.getActiveNarrationsLookup()
       ]);
       setCashBankAccounts(cbAccs);
       setDetailAccounts(detAccs);
