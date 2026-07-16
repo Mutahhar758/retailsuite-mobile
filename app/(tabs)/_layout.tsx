@@ -15,7 +15,13 @@ export default function TabLayout() {
     return permissions.includes(requiredPermission);
   };
 
-  const showDataEntry = hasPermission('View', 'Receipts') || hasPermission('View', 'SaleSupplies') || hasPermission('View', 'Payments') || hasPermission('View', 'Purchases');
+  const showDataEntry = 
+    hasPermission('View', 'ReceiptVouchers') || 
+    hasPermission('View', 'SaleSupplies') || 
+    hasPermission('View', 'Sales') || 
+    hasPermission('View', 'POSSales') || 
+    hasPermission('View', 'PaymentVouchers') || 
+    hasPermission('View', 'Purchases');
   const showReports = hasPermission('View', 'Reports');
   const showSetup = hasPermission('View', 'Customers') || hasPermission('View', 'Suppliers') || hasPermission('View', 'InventoryItems');
 

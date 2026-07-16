@@ -16,9 +16,9 @@ export default function DataEntryScreen() {
     return permissions.includes(requiredPermission);
   };
 
-  const showReceipts = hasPermission('View', 'Receipts');
-  const showSaleSupplies = hasPermission('View', 'SaleSupplies');
-  const showPayments = hasPermission('View', 'Payments');
+  const showReceipts = hasPermission('View', 'ReceiptVouchers');
+  const showSaleSupplies = hasPermission('View', 'SaleSupplies') || hasPermission('View', 'Sales') || hasPermission('View', 'POSSales');
+  const showPayments = hasPermission('View', 'PaymentVouchers');
   const showPurchases = hasPermission('View', 'Purchases');
   const noDataEntryVisible = !showReceipts && !showSaleSupplies && !showPayments && !showPurchases;
 
