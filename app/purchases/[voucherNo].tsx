@@ -595,7 +595,7 @@ export default function PurchaseFormScreen() {
                 )}
               </View>
 
-              <ScrollView>
+              <ScrollView keyboardShouldPersistTaps="handled">
                 {selectModalType === 'supplier' && suppliers
                   .filter(s => s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.account.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(s => (

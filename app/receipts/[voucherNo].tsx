@@ -549,7 +549,7 @@ export default function ReceiptFormScreen() {
               )}
             </View>
 
-            <ScrollView>
+            <ScrollView keyboardShouldPersistTaps="handled">
               {selectModalType === 'cashBank' && cashBankAccounts
                 .filter(a => a.title.toLowerCase().includes(searchQuery.toLowerCase()) || a.account.toLowerCase().includes(searchQuery.toLowerCase()))
                 .map(a => (

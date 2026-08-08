@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { Theme } from '../../constants/theme';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import { reportService, AccountStatementLine, CustomerBillResponse } from '../../services/reportService';
@@ -53,6 +52,10 @@ export default function ReportsScreen() {
   const [customers, setCustomers] = useState<ChartOfAccountHeadDto[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [customerBill, setCustomerBill] = useState<CustomerBillResponse | null>(null);
+
+  // Searchable Modal State
+  const [selectModalVisible, setSelectModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Snapshot of filters used for the currently displayed report
   const [reportSnapshot, setReportSnapshot] = useState<{
@@ -247,19 +250,25 @@ export default function ReportsScreen() {
         {/* Filters Section */}
         <Animated.View entering={FadeIn.duration(400)} style={styles.filterCard}>
           <Text style={styles.label}>{activeTab === 'account' ? 'Select Account' : 'Select Customer'}</Text>
-          <View style={[styles.pickerWrapper, { backgroundColor: '#ffffff' }]}>
-            <Picker
-              selectedValue={activeTab === 'account' ? selectedAccount : selectedCustomer}
-              onValueChange={(val) => activeTab === 'account' ? setSelectedAccount(val) : setSelectedCustomer(val)}
-              style={[styles.picker, { color: Theme.colors.text }]}
-              dropdownIconColor={Theme.colors.primary}
-            >
-              {activeTab === 'account' 
-                ? accounts.map(acc => <Picker.Item key={acc.account} label={acc.title} value={acc.account} />)
-                : customers.map(cust => <Picker.Item key={cust.account} label={cust.title} value={cust.account} />)
+          <TouchableOpacity 
+            style={styles.pickerContainer}
+            onPress={() => {
+              setSearchQuery('');
+              setSelectModalVisible(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[
+              styles.selectorText, 
+              !(activeTab === 'account' ? selectedAccount : selectedCustomer) && { color: Theme.colors.textSecondary }
+            ]}>
+              {activeTab === 'account'
+                ? (accounts.find(a => a.account === selectedAccount)?.title || selectedAccount || 'Select Account')
+                : (customers.find(c => c.account === selectedCustomer)?.title || selectedCustomer || 'Select Customer')
               }
-            </Picker>
-          </View>
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
 
           <Text style={styles.label}>Quick Select</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.shortcutScroll} contentContainerStyle={styles.shortcutContent}>
@@ -487,6 +496,87 @@ export default function ReportsScreen() {
         )}
 
       </ScrollView>
+
+      {/* Searchable Selection Bottom Sheet Modal */}
+      <Modal visible={selectModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {activeTab === 'account' ? 'Select Account' : 'Select Customer'}
+              </Text>
+              <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
+                <Ionicons name="close" size={24} color={Theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={Theme.colors.textSecondary} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search..."
+                placeholderTextColor={Theme.colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={Theme.colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView style={{ maxHeight: 350 }} keyboardShouldPersistTaps="handled">
+              {activeTab === 'account' ? (
+                accounts
+                  .filter(a => 
+                    a.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                    a.account.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map(acc => (
+                    <TouchableOpacity
+                      key={acc.account}
+                      style={styles.modalListItem}
+                      onPress={() => {
+                        setSelectedAccount(acc.account);
+                        setSelectModalVisible(false);
+                      }}
+                    >
+                      <Text style={styles.modalListItemText}>{acc.title}</Text>
+                      <Text style={styles.modalListItemSub}>{acc.account}</Text>
+                    </TouchableOpacity>
+                  ))
+              ) : (
+                customers
+                  .filter(c => 
+                    c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                    c.account.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map(cust => (
+                    <TouchableOpacity
+                      key={cust.account}
+                      style={styles.modalListItem}
+                      onPress={() => {
+                        setSelectedCustomer(cust.account);
+                        setSelectModalVisible(false);
+                      }}
+                    >
+                      <Text style={styles.modalListItemText}>{cust.title}</Text>
+                      <Text style={styles.modalListItemSub}>{cust.account}</Text>
+                    </TouchableOpacity>
+                  ))
+              )}
+              {((activeTab === 'account' && accounts.filter(a => a.title.toLowerCase().includes(searchQuery.toLowerCase()) || a.account.toLowerCase().includes(searchQuery.toLowerCase())).length === 0) ||
+                (activeTab === 'customer' && customers.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()) || c.account.toLowerCase().includes(searchQuery.toLowerCase())).length === 0)) && (
+                <View style={{ padding: Theme.spacing.md, alignItems: 'center' }}>
+                  <Text style={{ ...Theme.typography.body, color: Theme.colors.textSecondary }}>No results found</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -537,15 +627,82 @@ const styles = StyleSheet.create({
     ...Theme.shadows.md,
   },
   label: { ...Theme.typography.small, color: Theme.colors.textSecondary, fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  pickerWrapper: {
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
+  pickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: Theme.colors.border + '80',
-    overflow: 'hidden',
+    borderRadius: Theme.radii.md,
+    backgroundColor: Theme.colors.background,
+    padding: Theme.spacing.sm,
+    paddingHorizontal: Theme.spacing.md,
+    height: 50,
     marginBottom: Theme.spacing.lg,
   },
-  picker: { height: Platform.OS === 'ios' ? 120 : 50, width: '100%' },
+  selectorText: {
+    ...Theme.typography.bodyMedium,
+    color: Theme.colors.text,
+    flex: 1,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Theme.colors.white,
+    borderTopLeftRadius: Theme.radii.xl,
+    borderTopRightRadius: Theme.radii.xl,
+    maxHeight: '70%',
+    paddingBottom: Theme.spacing.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
+  },
+  modalTitle: {
+    ...Theme.typography.h3,
+    color: Theme.colors.text,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Theme.spacing.sm,
+    paddingHorizontal: Theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
+    backgroundColor: Theme.colors.background,
+  },
+  searchIcon: {
+    marginRight: Theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    ...Theme.typography.body,
+    color: Theme.colors.text,
+    paddingVertical: 8,
+  },
+  modalListItem: {
+    padding: Theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border + '40',
+  },
+  modalListItemText: {
+    ...Theme.typography.bodyMedium,
+    color: Theme.colors.text,
+    fontWeight: '500',
+  },
+  modalListItemSub: {
+    ...Theme.typography.small,
+    color: Theme.colors.textSecondary,
+    marginTop: 2,
+  },
   dateRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Theme.spacing.xl },
   dateField: { width: '48%' },
   shortcutScroll: { marginBottom: Theme.spacing.lg, marginHorizontal: -Theme.spacing.md },
