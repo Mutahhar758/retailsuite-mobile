@@ -2,6 +2,7 @@ import api from './api';
 
 export interface ReceiptDto {
   date: string;
+  clearingDate?: string;
   voucherNo: string;
   amount: number;
   narration: string;
@@ -15,6 +16,7 @@ export interface ReceiptDto {
 export interface ReceiptLineDto {
   seq: number;
   date: string;
+  clearingDate?: string;
   voucherNo: string;
   cashBankAccountId: string;
   accountId: string;
@@ -41,6 +43,7 @@ export interface ReceiptLineRequest {
 
 export interface ReceiptCreateRequest {
   date: string;
+  clearingDate?: string;
   cashBankAccount: string;
   narration?: string;
   lines: ReceiptLineRequest[];
@@ -48,6 +51,7 @@ export interface ReceiptCreateRequest {
 
 export interface ReceiptUpdateRequest {
   date: string;
+  clearingDate?: string;
   cashBankAccount: string;
   narration?: string;
   lines: ReceiptLineRequest[];

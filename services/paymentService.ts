@@ -2,6 +2,7 @@ import api from './api';
 
 export interface PaymentDto {
   date: string;
+  clearingDate?: string;
   voucherNo: string;
   amount: number;
   narration: string;
@@ -15,6 +16,7 @@ export interface PaymentDto {
 export interface PaymentLineDto {
   seq: number;
   date: string;
+  clearingDate?: string;
   voucherNo: string;
   cashBankAccountId: string;
   accountId: string;
@@ -41,6 +43,7 @@ export interface PaymentLineRequest {
 
 export interface PaymentCreateRequest {
   date: string;
+  clearingDate?: string;
   cashBankAccount: string;
   narration?: string;
   lines: PaymentLineRequest[];
@@ -48,6 +51,7 @@ export interface PaymentCreateRequest {
 
 export interface PaymentUpdateRequest {
   date: string;
+  clearingDate?: string;
   cashBankAccount: string;
   narration?: string;
   lines: PaymentLineRequest[];

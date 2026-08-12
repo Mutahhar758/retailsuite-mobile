@@ -38,6 +38,7 @@ export default function ReportsScreen() {
   // Common State
   const [fromDate, setFromDate] = useState(dayjs().startOf('month').toDate());
   const [toDate, setToDate] = useState(dayjs().toDate());
+  const [dateBasis, setDateBasis] = useState<'VoucherDate' | 'ClearingDate'>('VoucherDate');
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -96,7 +97,8 @@ export default function ReportsScreen() {
       const res = await reportService.getAccountStatement({
         fromDate: dayjs(fromDate).format('YYYY-MM-DD'),
         toDate: dayjs(toDate).format('YYYY-MM-DD'),
-        account: selectedAccount
+        account: selectedAccount,
+        dateBasis
       });
       let currentBalance = 0;
       setAccountData(res.map(row => {
@@ -122,7 +124,8 @@ export default function ReportsScreen() {
       const res = await reportService.getCustomerBill({
         fromDate: dayjs(fromDate).format('YYYY-MM-DD'),
         toDate: dayjs(toDate).format('YYYY-MM-DD'),
-        account: selectedCustomer
+        account: selectedCustomer,
+        dateBasis
       });
       setCustomerBill(res);
       setReportSnapshot({
@@ -327,6 +330,22 @@ export default function ReportsScreen() {
                 />
               )}
             </View>
+          </View>
+
+          <Text style={[styles.label, { marginTop: 18 }]}>Date Basis</Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: Theme.colors.border }, dateBasis === 'VoucherDate' && { backgroundColor: Theme.colors.primary, borderColor: Theme.colors.primary }]}
+              onPress={() => setDateBasis('VoucherDate')}
+            >
+              <Text style={[{ fontSize: 13, fontWeight: '600', color: Theme.colors.textSecondary }, dateBasis === 'VoucherDate' && { color: Theme.colors.white }]}>Voucher Date</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: Theme.colors.border }, dateBasis === 'ClearingDate' && { backgroundColor: Theme.colors.primary, borderColor: Theme.colors.primary }]}
+              onPress={() => setDateBasis('ClearingDate')}
+            >
+              <Text style={[{ fontSize: 13, fontWeight: '600', color: Theme.colors.textSecondary }, dateBasis === 'ClearingDate' && { color: Theme.colors.white }]}>Clearing Date</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity style={styles.searchBtn} onPress={handleSearch} disabled={loading} activeOpacity={0.8}>
@@ -733,6 +752,7 @@ const styles = StyleSheet.create({
     borderRadius: Theme.radii.md,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: Theme.spacing.xl,
     ...Theme.shadows.sm,
   },
   searchBtnText: { ...Theme.typography.h3, color: Theme.colors.white },

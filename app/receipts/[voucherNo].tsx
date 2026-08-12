@@ -31,6 +31,8 @@ export default function ReceiptFormScreen() {
   // Form State
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [clearingDate, setClearingDate] = useState<Date | null>(null);
+  const [showClearingDatePicker, setShowClearingDatePicker] = useState(false);
   const [cashBankAccount, setCashBankAccount] = useState('');
   const [narration, setNarration] = useState('');
   
@@ -80,6 +82,7 @@ export default function ReceiptFormScreen() {
       if (details && details.length > 0) {
         const first = details[0];
         setDate(new Date(first.date));
+        setClearingDate(first.clearingDate ? new Date(first.clearingDate) : null);
         setCashBankAccount(first.cashBankAccountId);
         setNarration(first.narrationId || '');
         
@@ -213,6 +216,7 @@ export default function ReceiptFormScreen() {
 
       const request = {
         date: dayjs(date).format('YYYY-MM-DD'),
+        clearingDate: clearingDate ? dayjs(clearingDate).format('YYYY-MM-DD') : undefined,
         cashBankAccount,
         narration: narration || undefined,
         lines: cleanedLines
@@ -308,6 +312,34 @@ export default function ReceiptFormScreen() {
                   onChange={(event, selectedDate) => {
                     setShowDatePicker(false);
                     if (selectedDate) setDate(selectedDate);
+                  }}
+                />
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.label}>Clearing Date (Optional)</Text>
+                {clearingDate && (
+                  <TouchableOpacity onPress={() => setClearingDate(null)}>
+                    <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity style={styles.datePickerBtn} onPress={() => setShowClearingDatePicker(true)}>
+                <Text style={[styles.dateText, !clearingDate && { color: Theme.colors.textSecondary }]}>
+                  {clearingDate ? dayjs(clearingDate).format('DD-MMM-YYYY') : 'Not Set'}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color={Theme.colors.textSecondary} />
+              </TouchableOpacity>
+              {showClearingDatePicker && (
+                <DateTimePicker
+                  value={clearingDate || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={(event, selectedDate) => {
+                    setShowClearingDatePicker(false);
+                    if (selectedDate) setClearingDate(selectedDate);
                   }}
                 />
               )}
