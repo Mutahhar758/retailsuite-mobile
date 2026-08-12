@@ -17,11 +17,13 @@ export interface SaleSupplyLine {
   date: string;
   voucherNo: string;
   itemId: string;
+  itemTitle?: string;
   narration?: string;
   narrationId?: string;
   description?: string;
   supplyOrderMasterId?: number;
   customerId: string;
+  customerTitle?: string;
   unit?: string;
   qty: number;
   rate: number;
@@ -48,6 +50,12 @@ export interface SaleSupplyLineRequest {
   secQty?: number;
   secRate?: number;
   secUnit?: string;
+}
+
+export interface SaleSupplyCustomerLineUpdateRequest {
+  voucherNo: string;
+  seq: number;
+  line: SaleSupplyLineRequest;
 }
 
 export interface SaleSupplyCreateRequest {
@@ -85,6 +93,16 @@ export const saleSupplyService = {
     return response.data.body as SaleSupplyLine[];
   },
 
+  async getCustomerLines(params: {
+    customerId: string;
+    fromDate?: string;
+    toDate?: string;
+    itemId?: string;
+  }) {
+    const response = await api.get('/api/SaleSupplies/customer-records', { params });
+    return response.data.body as SaleSupplyLine[];
+  },
+
   async create(request: SaleSupplyCreateRequest) {
     const response = await api.post('/api/SaleSupplies', request);
     return response.data.body as string;
@@ -92,6 +110,14 @@ export const saleSupplyService = {
 
   async update(voucherNo: string, request: SaleSupplyUpdateRequest) {
     await api.put(`/api/SaleSupplies/${voucherNo}`, request);
+  },
+
+  async updateLine(voucherNo: string, seq: number, request: SaleSupplyLineRequest) {
+    await api.put(`/api/SaleSupplies/${voucherNo}/lines/${seq}`, request);
+  },
+
+  async updateCustomerLines(requests: SaleSupplyCustomerLineUpdateRequest[]) {
+    await api.put('/api/SaleSupplies/customer-lines', requests);
   },
 
   async delete(voucherNo: string) {

@@ -28,6 +28,13 @@ export default function SaleSuppliesLayout() {
           presentation: 'card',
         }} 
       />
+      <Stack.Screen 
+        name="customer-register" 
+        options={{
+          title: 'Customer Register',
+          presentation: 'card',
+        }} 
+      />
     </Stack>
   );
 }

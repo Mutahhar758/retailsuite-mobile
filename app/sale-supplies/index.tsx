@@ -108,6 +108,14 @@ export default function SaleSuppliesListScreen() {
 
       <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.fabContainer}>
         <TouchableOpacity
+          style={styles.registerFab}
+          onPress={() => router.push('/sale-supplies/customer-register')}
+        >
+          <Ionicons name="people-outline" size={20} color={Theme.colors.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.registerFabText}>Customer Register</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={styles.fab}
           onPress={() => router.push('/sale-supplies/new')}
         >
@@ -211,12 +219,31 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: Theme.spacing.lg,
     right: Theme.spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  registerFab: {
+    backgroundColor: Theme.colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    borderColor: Theme.colors.primary,
+    ...Theme.shadows.md,
+  },
+  registerFabText: {
+    color: Theme.colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
   },
   fab: {
     backgroundColor: Theme.colors.primary,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
     ...Theme.shadows.md,
