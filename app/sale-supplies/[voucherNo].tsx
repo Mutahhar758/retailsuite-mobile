@@ -14,6 +14,7 @@ import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/cha
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item, Unit } from '../../services/inventoryService';
 import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderService';
+import { customerService } from '../../services/customerService';
 import { useAppStore } from '../../store/appStore';
 
 export default function SaleSupplyFormScreen() {
@@ -28,6 +29,7 @@ export default function SaleSupplyFormScreen() {
 
   const [loading, setLoading] = useState(voucherNo !== 'new');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   
   // Lookups
   const [customers, setCustomers] = useState<ChartOfAccountHeadDto[]>([]);
@@ -124,23 +126,42 @@ export default function SaleSupplyFormScreen() {
     
     setLoading(true);
     try {
-      const order = await supplyOrderService.getById(orderId);
+      const [order, customSupplyItems] = await Promise.all([
+        supplyOrderService.getById(orderId),
+        itemId ? customerService.getSupplyItems({ itemId }) : Promise.resolve([])
+      ]);
+
+      const customerQtyMap = new Map<string, { qty: number; secQty?: number }>();
+      if (customSupplyItems && Array.isArray(customSupplyItems)) {
+        customSupplyItems.forEach(ci => {
+          if (ci.customerAccountId) {
+            customerQtyMap.set(ci.customerAccountId, { qty: ci.qty, secQty: ci.secQty });
+          }
+        });
+      }
+
       if (order && order.details) {
         const defaultRate = (selectedItem?.defaultUnit === selectedItem?.secondaryUnit 
           ? selectedItem?.secRate : selectedItem?.priRate) ?? 0;
           
-        const newLines = order.details.map((d, index) => ({
-          seq: index + 1,
-          customerId: d.customerId,
-          unit: selectedItem?.defaultUnit || '',
-          qty: 1,
-          rate: defaultRate,
-          discount: 0,
-          addLess: 0,
-          secQty: 0,
-          secRate: selectedItem?.secRate || 0,
-          secUnit: selectedItem?.secondaryUnit || ''
-        }));
+        const newLines = order.details.map((d, index) => {
+          const setting = customerQtyMap.get(d.customerId);
+          const qty = setting ? setting.qty : 1;
+          const secQty = setting ? (setting.secQty || 0) : 0;
+
+          return {
+            seq: index + 1,
+            customerId: d.customerId,
+            unit: selectedItem?.defaultUnit || '',
+            qty: qty,
+            rate: defaultRate,
+            discount: 0,
+            addLess: 0,
+            secQty: secQty,
+            secRate: selectedItem?.secRate || 0,
+            secUnit: selectedItem?.secondaryUnit || ''
+          };
+        });
         setLines(newLines);
         Alert.alert('Success', `Loaded ${newLines.length} customers from ${order.title}`);
       }

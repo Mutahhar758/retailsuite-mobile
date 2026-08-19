@@ -1,5 +1,13 @@
 import api from './api';
 
+export interface CustomerSupplyItemDto {
+  customerAccountId?: string;
+  itemId: string;
+  itemTitle?: string;
+  qty: number;
+  secQty?: number;
+}
+
 export interface CustomerResponse {
   account: string;
   title: string;
@@ -21,6 +29,7 @@ export interface CustomerResponse {
   createdOn?: string;
   lastModifiedBy?: string;
   lastModifiedOn?: string;
+  supplyItems?: CustomerSupplyItemDto[];
 }
 
 export interface CustomerCreateRequest {
@@ -38,6 +47,7 @@ export interface CustomerCreateRequest {
   emailAlert: boolean;
   active: boolean;
   mediaId?: string;
+  supplyItems?: CustomerSupplyItemDto[];
 }
 
 export interface CustomerUpdateRequest {
@@ -55,6 +65,7 @@ export interface CustomerUpdateRequest {
   emailAlert: boolean;
   active: boolean;
   mediaId?: string;
+  supplyItems?: CustomerSupplyItemDto[];
 }
 
 export const customerService = {
@@ -64,12 +75,14 @@ export const customerService = {
   },
 
   async getDetail(account: string) {
-    // Usually there's a detail endpoint, but if not we can just fetch all and filter or assume there's a GET /api/customers/:account
-    // The web app doesn't show a getDetail in customerService, it just fetches all and filters in the component.
-    // We'll mimic the fetching all and filtering if the specific endpoint isn't defined, but let's assume it exists or we can just get from list.
     const response = await api.get('/api/customers');
     const customers = response.data.body as CustomerResponse[];
     return customers.find(c => c.account === account);
+  },
+
+  async getSupplyItems(params?: { customerId?: string; itemId?: string }) {
+    const response = await api.get('/api/customers/supply-items', { params });
+    return response.data.body as CustomerSupplyItemDto[];
   },
 
   async create(data: CustomerCreateRequest) {
@@ -87,3 +100,4 @@ export const customerService = {
     return response.data.body as { fileId: string; uploadUrl: string; expiresAt: string };
   }
 };
+
