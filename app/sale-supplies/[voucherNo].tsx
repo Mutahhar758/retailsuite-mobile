@@ -16,6 +16,7 @@ import { inventoryService, Item, Unit } from '../../services/inventoryService';
 import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderService';
 import { customerService } from '../../services/customerService';
 import { useAppStore } from '../../store/appStore';
+import { round } from '../../utils/numberUtils';
 
 export default function SaleSupplyFormScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
@@ -26,6 +27,7 @@ export default function SaleSupplyFormScreen() {
   const { currentTenantIdentifier, licenses } = useAppStore();
   const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
   const hasSecondaryQty = currentOrg?.hasSecondaryQty ?? false;
+  const hasVariablePackFeature = currentOrg?.hasVariablePackFeature ?? false;
 
   const [loading, setLoading] = useState(voucherNo !== 'new');
   const [saving, setSaving] = useState(false);
@@ -48,7 +50,7 @@ export default function SaleSupplyFormScreen() {
 
   // Lines State
   const [lines, setLines] = useState<SaleSupplyLineRequest[]>([
-    { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0, secQty: 0, secRate: 0 }
+    { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0, secQty: 0, secRate: 0, packQty: 0, packing: 0 }
   ]);
 
   // Modal State for Selectors
@@ -106,9 +108,11 @@ export default function SaleSupplyFormScreen() {
           rate: d.rate,
           discount: d.discount,
           addLess: d.addLess,
-          secQty: d.secQty,
-          secRate: d.secRate,
-          secUnit: d.secUnit
+          secQty: d.secQty || 0,
+          secRate: d.secRate || 0,
+          secUnit: d.secUnit,
+          packQty: (d as any).qtyInPack || ((d.qty > 0 && d.secQty && d.secQty > 0) ? round(d.qty / d.secQty, 2) : 0),
+          packing: (d as any).packing || 0
         }));
         setLines(mappedLines);
       }
@@ -143,6 +147,7 @@ export default function SaleSupplyFormScreen() {
       if (order && order.details) {
         const defaultRate = (selectedItem?.defaultUnit === selectedItem?.secondaryUnit 
           ? selectedItem?.secRate : selectedItem?.priRate) ?? 0;
+        const pSize = Number(selectedItem?.qtyInPack || (selectedItem as any)?.QtyInPack || (selectedItem as any)?.qty_in_pack || 0);
           
         const newLines = order.details.map((d, index) => {
           const setting = customerQtyMap.get(d.customerId);
@@ -159,7 +164,9 @@ export default function SaleSupplyFormScreen() {
             addLess: 0,
             secQty: secQty,
             secRate: selectedItem?.secRate || 0,
-            secUnit: selectedItem?.secondaryUnit || ''
+            secUnit: selectedItem?.secondaryUnit || '',
+            packQty: pSize,
+            packing: pSize
           };
         });
         setLines(newLines);
@@ -179,6 +186,8 @@ export default function SaleSupplyFormScreen() {
     let defaultRate = 0;
     let secUnit = '';
     let secRate = 0;
+    let packQty = 0;
+    let packing = 0;
     const selectedItem = items.find(i => i.id === itemId);
     
     if (selectedItem) {
@@ -186,9 +195,15 @@ export default function SaleSupplyFormScreen() {
       defaultRate = selectedItem.priRate || 0;
       secUnit = selectedItem.secondaryUnit || '';
       secRate = selectedItem.secRate || 0;
+      const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
+      packQty = pSize;
+      packing = pSize;
+      if (hasVariablePackFeature) {
+        secRate = selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1));
+      }
     }
     
-    setLines([...lines, { seq: nextSeq, customerId: '', unit: defaultUnit, qty: 1, rate: defaultRate, discount: 0, addLess: 0, secQty: 0, secRate, secUnit }]);
+    setLines([...lines, { seq: nextSeq, customerId: '', unit: defaultUnit, qty: 1, rate: defaultRate, discount: 0, addLess: 0, secQty: 0, secRate, secUnit, packQty, packing }]);
   };
 
   const removeLine = (seq: number) => {
@@ -205,6 +220,82 @@ export default function SaleSupplyFormScreen() {
     }));
   };
 
+  const updateLineField = (seq: number, field: string, value: any) => {
+    setLines(prev => prev.map(l => {
+      if (l.seq === seq) {
+        const updated = { ...l, [field]: value };
+        const cleanVal = typeof value === 'string' ? value.replace(/,/g, '') : value;
+        const numVal = (cleanVal !== null && cleanVal !== undefined && cleanVal !== '' && !isNaN(Number(cleanVal))) ? Number(cleanVal) : 0;
+
+        if (hasVariablePackFeature) {
+          let kgQty = updated.qty || 0;
+          let bagQty = updated.secQty || 0;
+          let packQty = (updated as any).packQty || 0;
+          let packing = (updated as any).packing || 0;
+          let kgRate = updated.rate || 0;
+          let bagRate = updated.secRate || 0;
+
+          if (field === 'qty') {
+            kgQty = numVal;
+            if (bagQty > 0) {
+              packQty = round(kgQty / bagQty, 2);
+            } else if (packQty > 0) {
+              bagQty = round(kgQty / packQty, 2);
+            }
+          } else if (field === 'secQty') {
+            bagQty = numVal;
+            if (packQty > 0) {
+              kgQty = round(bagQty * packQty, 2);
+            } else if (kgQty > 0) {
+              packQty = round(kgQty / bagQty, 2);
+            }
+          } else if (field === 'packQty') {
+            packQty = numVal;
+            if (bagQty > 0) {
+              kgQty = round(bagQty * packQty, 2);
+            } else if (kgQty > 0) {
+              bagQty = round(kgQty / packQty, 2);
+            }
+          } else if (field === 'packing') {
+            packing = numVal;
+            if (packing > 0) {
+              if (bagRate > 0) {
+                kgRate = round(bagRate / packing, 4);
+              } else if (kgRate > 0) {
+                bagRate = round(kgRate * packing, 4);
+              }
+            }
+          } else if (field === 'rate') {
+            kgRate = numVal;
+            if (packing > 0) {
+              bagRate = round(kgRate * packing, 4);
+            }
+          } else if (field === 'secRate') {
+            bagRate = numVal;
+            if (packing > 0) {
+              kgRate = round(bagRate / packing, 4);
+            }
+          } else if (field === 'discount') {
+            updated.discount = numVal;
+          } else if (field === 'addLess') {
+            updated.addLess = numVal;
+          }
+
+          updated.qty = round(kgQty, 2);
+          updated.secQty = round(bagQty, 2);
+          (updated as any).packQty = round(packQty, 2);
+          (updated as any).packing = round(packing, 2);
+          updated.rate = round(kgRate, 4);
+          updated.secRate = round(bagRate, 4);
+        } else {
+          (updated as any)[field] = numVal;
+        }
+        return updated;
+      }
+      return l;
+    }));
+  };
+
   const openSelector = (type: 'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder', seq?: number) => {
     setSelectModalType(type);
     if (seq) setActiveLineSeq(seq);
@@ -215,6 +306,21 @@ export default function SaleSupplyFormScreen() {
   const handleSelect = (value: any) => {
     if (selectModalType === 'item') {
       setItemId(value);
+      const selectedItem = items.find(i => i.id === value);
+      if (selectedItem) {
+        const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
+        const defaultRate = (selectedItem.defaultUnit === selectedItem.secondaryUnit ? selectedItem.secRate : selectedItem.priRate) || 0;
+        const secRate = selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1));
+        setLines(prev => prev.map(l => ({
+          ...l,
+          unit: selectedItem.defaultUnit || selectedItem.primaryUnit || l.unit,
+          rate: defaultRate,
+          secUnit: selectedItem.secondaryUnit || l.secUnit,
+          secRate: hasVariablePackFeature ? secRate : (selectedItem.secRate || 0),
+          packQty: pSize,
+          packing: pSize
+        })));
+      }
     } else if (selectModalType === 'narration') {
       setNarration(value);
     } else if (selectModalType === 'supplyOrder') {
@@ -260,10 +366,12 @@ export default function SaleSupplyFormScreen() {
 
   const totalAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
-      const amt = (l.qty * (l.rate - l.discount)) + l.addLess + ((l.secQty ?? 0) * (l.secRate ?? 0));
+      const amt = hasVariablePackFeature
+        ? (l.qty * (l.rate - (l.discount || 0))) + (l.addLess || 0)
+        : (l.qty * (l.rate - (l.discount || 0))) + (l.addLess || 0) + ((l.secQty ?? 0) * (l.secRate ?? 0));
       return sum + amt;
     }, 0);
-  }, [lines]);
+  }, [lines, hasVariablePackFeature]);
 
   const handleSave = async () => {
     if (!itemId) {
@@ -289,7 +397,9 @@ export default function SaleSupplyFormScreen() {
         addLess: l.addLess,
         secQty: l.secQty || 0,
         secRate: l.secRate || 0,
-        secUnit: l.secUnit || undefined
+        secUnit: l.secUnit || undefined,
+        qtyInPack: (l as any).packQty || (l as any).qtyInPack || null,
+        packing: (l as any).packing || null
       }));
 
       const request = {
@@ -478,7 +588,9 @@ export default function SaleSupplyFormScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = (line.qty * (line.rate - line.discount)) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
+            const lineAmount = hasVariablePackFeature
+              ? (line.qty * (line.rate - line.discount)) + line.addLess
+              : (line.qty * (line.rate - line.discount)) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
@@ -496,7 +608,84 @@ export default function SaleSupplyFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {!hasSecondaryQty ? (
+                {hasVariablePackFeature ? (
+                  <>
+                    <View style={styles.row}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                        <Text style={styles.label}>Qty (Kg) *</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.qty)}
+                          onChangeText={(val) => updateLineField(line.seq, 'qty', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Bag Qty</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.secQty ?? 0)}
+                          onChangeText={(val) => updateLineField(line.seq, 'secQty', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.row}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                        <Text style={styles.label}>Pack Qty</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String((line as any).packQty ?? 0)}
+                          onChangeText={(val) => updateLineField(line.seq, 'packQty', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Packing</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String((line as any).packing ?? 0)}
+                          onChangeText={(val) => updateLineField(line.seq, 'packing', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.row}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                        <Text style={styles.label}>Rate (/Kg) *</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0.00"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.rate)}
+                          onChangeText={(val) => updateLineField(line.seq, 'rate', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
+                        <Text style={styles.label}>Bag Rate</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="0.00"
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={String(line.secRate ?? 0)}
+                          onChangeText={(val) => updateLineField(line.seq, 'secRate', val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </>
+                ) : !hasSecondaryQty ? (
                   <View style={styles.row}>
                     <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
                       <Text style={styles.label}>Unit</Text>
@@ -511,7 +700,7 @@ export default function SaleSupplyFormScreen() {
                         placeholder="0"
                         placeholderTextColor={Theme.colors.textSecondary}
                         value={String(line.qty)}
-                        onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
+                        onChangeText={(val) => updateLineField(line.seq, 'qty', val)}
                         keyboardType="numeric"
                       />
                     </View>
@@ -522,7 +711,7 @@ export default function SaleSupplyFormScreen() {
                         placeholder="0.00"
                         placeholderTextColor={Theme.colors.textSecondary}
                         value={String(line.rate)}
-                        onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
+                        onChangeText={(val) => updateLineField(line.seq, 'rate', val)}
                         keyboardType="numeric"
                       />
                     </View>
@@ -537,7 +726,7 @@ export default function SaleSupplyFormScreen() {
                           placeholder="0"
                           placeholderTextColor={Theme.colors.textSecondary}
                           value={String(line.qty)}
-                          onChangeText={(val) => updateLine(line.seq, { qty: Number(val) || 0 })}
+                          onChangeText={(val) => updateLineField(line.seq, 'qty', val)}
                           keyboardType="numeric"
                         />
                       </View>
@@ -548,7 +737,7 @@ export default function SaleSupplyFormScreen() {
                           placeholder="0.00"
                           placeholderTextColor={Theme.colors.textSecondary}
                           value={String(line.rate)}
-                          onChangeText={(val) => updateLine(line.seq, { rate: Number(val) || 0 })}
+                          onChangeText={(val) => updateLineField(line.seq, 'rate', val)}
                           keyboardType="numeric"
                         />
                       </View>
@@ -561,7 +750,7 @@ export default function SaleSupplyFormScreen() {
                           placeholder="0"
                           placeholderTextColor={Theme.colors.textSecondary}
                           value={String(line.secQty ?? 0)}
-                          onChangeText={(val) => updateLine(line.seq, { secQty: Number(val) || 0 })}
+                          onChangeText={(val) => updateLineField(line.seq, 'secQty', val)}
                           keyboardType="numeric"
                         />
                       </View>
@@ -572,7 +761,7 @@ export default function SaleSupplyFormScreen() {
                           placeholder="0.00"
                           placeholderTextColor={Theme.colors.textSecondary}
                           value={String(line.secRate ?? 0)}
-                          onChangeText={(val) => updateLine(line.seq, { secRate: Number(val) || 0 })}
+                          onChangeText={(val) => updateLineField(line.seq, 'secRate', val)}
                           keyboardType="numeric"
                         />
                       </View>
@@ -588,7 +777,7 @@ export default function SaleSupplyFormScreen() {
                       placeholder="0.00"
                       placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.discount)}
-                      onChangeText={(val) => updateLine(line.seq, { discount: Number(val) || 0 })}
+                      onChangeText={(val) => updateLineField(line.seq, 'discount', val)}
                       keyboardType="numeric"
                     />
                   </View>
@@ -599,7 +788,7 @@ export default function SaleSupplyFormScreen() {
                       placeholder="0.00"
                       placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.addLess)}
-                      onChangeText={(val) => updateLine(line.seq, { addLess: Number(val) || 0 })}
+                      onChangeText={(val) => updateLineField(line.seq, 'addLess', val)}
                       keyboardType="numeric"
                     />
                   </View>

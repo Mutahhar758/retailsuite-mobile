@@ -33,6 +33,8 @@ export interface SaleSupplyLine {
   secQty?: number;
   secRate?: number;
   secUnit?: string;
+  qtyInPack?: number;
+  packing?: number;
   createdBy: string;
   createdOn: string;
   lastModifiedBy?: string;
@@ -50,6 +52,9 @@ export interface SaleSupplyLineRequest {
   secQty?: number;
   secRate?: number;
   secUnit?: string;
+  qtyInPack?: number | null;
+  packing?: number | null;
+  packQty?: number;
 }
 
 export interface SaleSupplyCustomerLineUpdateRequest {

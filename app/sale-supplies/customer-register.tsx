@@ -430,10 +430,16 @@ export default function CustomerSupplyRegisterScreen() {
             {item.itemTitle || item.itemId}
           </Text>
           <Text style={styles.compactSubText} numberOfLines={1}>
-            Qty: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.qty}</Text>
-            {item.rate > 0 ? ` @ $${item.rate}` : ''}
-            {item.discount > 0 ? ` (Disc: $${item.discount})` : ''}
-            {hasSecondaryQty && item.secQty ? ` | Sec: ${item.secQty}` : ''}
+            {hasVariablePackFeature ? (
+              `Qty: ${item.qty} Kg | Bags: ${item.secQty || 0} | Rate: Rs. ${item.rate}/Kg`
+            ) : (
+              <>
+                Qty: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.qty}</Text>
+                {item.rate > 0 ? ` @ Rs. ${item.rate}` : ''}
+                {item.discount > 0 ? ` (Disc: Rs. ${item.discount})` : ''}
+                {hasSecondaryQty && item.secQty ? ` | Sec: ${item.secQty}` : ''}
+              </>
+            )}
           </Text>
         </View>
 
@@ -730,7 +736,7 @@ export default function CustomerSupplyRegisterScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 400 }}>
-              <Text style={styles.inputLabel}>Quantity</Text>
+              <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Qty (Kg)' : 'Quantity'}</Text>
               <TextInput
                 style={styles.editInput}
                 keyboardType="numeric"
@@ -738,7 +744,7 @@ export default function CustomerSupplyRegisterScreen() {
                 onChangeText={setEditQty}
               />
 
-              <Text style={styles.inputLabel}>Rate</Text>
+              <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Rate (/Kg)' : 'Rate'}</Text>
               <TextInput
                 style={styles.editInput}
                 keyboardType="numeric"
@@ -764,7 +770,7 @@ export default function CustomerSupplyRegisterScreen() {
 
               {(hasSecondaryQty || hasVariablePackFeature) && (
                 <>
-                  <Text style={styles.inputLabel}>Secondary Qty</Text>
+                  <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Sec Qty (Bags)' : 'Secondary Qty'}</Text>
                   <TextInput
                     style={styles.editInput}
                     keyboardType="numeric"
@@ -772,7 +778,7 @@ export default function CustomerSupplyRegisterScreen() {
                     onChangeText={setEditSecQty}
                   />
 
-                  <Text style={styles.inputLabel}>Secondary Rate</Text>
+                  <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Bag Rate' : 'Secondary Rate'}</Text>
                   <TextInput
                     style={styles.editInput}
                     keyboardType="numeric"

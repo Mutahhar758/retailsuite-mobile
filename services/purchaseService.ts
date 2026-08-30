@@ -30,6 +30,8 @@ export interface PurchaseLineDto {
   secQty?: number;
   secRate?: number;
   secUnit?: string;
+  qtyInPack?: number;
+  packing?: number;
   createdBy: string;
   createdOn: string;
   lastModifiedBy?: string;
@@ -46,6 +48,9 @@ export interface PurchaseLineRequest {
   secQty?: number;
   secRate?: number;
   secUnit?: string;
+  qtyInPack?: number | null;
+  packing?: number | null;
+  packQty?: number;
 }
 
 export interface PurchaseCreateRequest {

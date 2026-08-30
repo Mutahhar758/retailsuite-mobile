@@ -11,9 +11,14 @@ import { reportService, AccountStatementLine, CustomerBillResponse } from '../..
 import { chartOfAccountService, ChartOfAccountDto, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '../../store/authStore';
+import { useAppStore } from '../../store/appStore';
 
 export default function ReportsScreen() {
   const { user, permissions } = useAuthStore();
+  const { currentTenantIdentifier, licenses } = useAppStore();
+  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const hasVariablePackFeature = currentOrg?.hasVariablePackFeature ?? false;
+
   const hasPermission = (action: string, resource: string) => {
     if (user?.isOwner) return true;
     const requiredPermission = `Permissions.${resource}.${action}`;
@@ -455,37 +460,94 @@ export default function ReportsScreen() {
             <View style={styles.receiptDivider} />
 
             {/* Receipt Table Header */}
-            <View style={styles.receiptRow}>
-              <Text style={[styles.receiptColHeader, { flex: 1.5 }]}>ITEM</Text>
-              <Text style={[styles.receiptColHeader, { flex: 1.2, textAlign: 'center' }]}>QTY/RT</Text>
-              <Text style={[styles.receiptColHeader, { flex: 1.3, textAlign: 'right' }]}>AMOUNT</Text>
-            </View>
+            {hasVariablePackFeature ? (
+              <View style={styles.receiptRow}>
+                <Text style={[styles.receiptColHeader, { flex: 1.6 }]}>ITEM</Text>
+                <Text style={[styles.receiptColHeader, { flex: 1.2, textAlign: 'center' }]}>WT/BAGS</Text>
+                <Text style={[styles.receiptColHeader, { flex: 1.2, textAlign: 'center' }]}>RATE/BAG RT</Text>
+                <Text style={[styles.receiptColHeader, { flex: 1.2, textAlign: 'right' }]}>AMOUNT</Text>
+              </View>
+            ) : (
+              <View style={styles.receiptRow}>
+                <Text style={[styles.receiptColHeader, { flex: 1.5 }]}>ITEM</Text>
+                <Text style={[styles.receiptColHeader, { flex: 1.2, textAlign: 'center' }]}>QTY/RT</Text>
+                <Text style={[styles.receiptColHeader, { flex: 1.3, textAlign: 'right' }]}>AMOUNT</Text>
+              </View>
+            )}
             
             <View style={styles.receiptDivider} />
 
             {/* Receipt Items */}
-            {customerBill.lines.map((item, index) => (
-              <View key={index} style={styles.receiptItemRow}>
-                <View style={{ flex: 1.5, paddingRight: 4 }}>
-                  <Text style={styles.receiptItemName} numberOfLines={2}>{item.item}</Text>
-                  <Text style={styles.receiptItemSub}>{dayjs(item.date).format('DD-MMM')} | {item.vNo}</Text>
+            {customerBill.lines.map((item, index) => {
+              const bagQty = item.secQty ?? (item.qtyInPack && item.qtyInPack > 0 ? Math.round(item.qty / item.qtyInPack) : 0);
+              const kgRate = item.rate ?? 0;
+              const bagRate = item.secRate ?? (item.qtyInPack && item.qtyInPack > 0 ? item.rate * item.qtyInPack : 0);
+
+              if (hasVariablePackFeature) {
+                return (
+                  <View key={index} style={styles.receiptItemRow}>
+                    <View style={{ flex: 1.6, paddingRight: 4 }}>
+                      <Text style={styles.receiptItemName} numberOfLines={2}>{item.item}</Text>
+                      <Text style={styles.receiptItemSub}>{dayjs(item.date).format('DD-MMM')} | {item.vNo}</Text>
+                    </View>
+                    <View style={{ flex: 1.2, alignItems: 'center' }}>
+                      <Text style={styles.receiptItemText}>{item.qty} Kg</Text>
+                      <Text style={styles.receiptItemSub}>{bagQty > 0 ? `${bagQty} Bags` : '-'}</Text>
+                    </View>
+                    <View style={{ flex: 1.2, alignItems: 'center' }}>
+                      <Text style={styles.receiptItemText}>@{kgRate}</Text>
+                      <Text style={styles.receiptItemSub}>{bagRate > 0 ? `B.Rt: ${bagRate}` : '-'}</Text>
+                    </View>
+                    <View style={{ flex: 1.2, alignItems: 'flex-end' }}>
+                      <Text style={styles.receiptItemText}>{item.amount.toLocaleString()}</Text>
+                      {item.addLess !== 0 && (
+                        <Text style={styles.receiptItemSub}>{item.addLess > 0 ? '+' : ''}{item.addLess}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              }
+
+              return (
+                <View key={index} style={styles.receiptItemRow}>
+                  <View style={{ flex: 1.5, paddingRight: 4 }}>
+                    <Text style={styles.receiptItemName} numberOfLines={2}>{item.item}</Text>
+                    <Text style={styles.receiptItemSub}>{dayjs(item.date).format('DD-MMM')} | {item.vNo}</Text>
+                  </View>
+                  <View style={{ flex: 1.2, alignItems: 'center' }}>
+                    <Text style={styles.receiptItemText}>{item.qty}</Text>
+                    <Text style={styles.receiptItemSub} numberOfLines={1} adjustsFontSizeToFit>@ {item.rate}</Text>
+                  </View>
+                  <View style={{ flex: 1.3, alignItems: 'flex-end' }}>
+                    <Text style={styles.receiptItemText}>{item.amount.toLocaleString()}</Text>
+                    {item.addLess !== 0 && (
+                      <Text style={styles.receiptItemSub}>{item.addLess > 0 ? '+' : ''}{item.addLess}</Text>
+                    )}
+                  </View>
                 </View>
-                <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={styles.receiptItemText}>{item.qty}</Text>
-                  <Text style={styles.receiptItemSub} numberOfLines={1} adjustsFontSizeToFit>@ {item.rate}</Text>
-                </View>
-                <View style={{ flex: 1.3, alignItems: 'flex-end' }}>
-                  <Text style={styles.receiptItemText}>{item.amount.toLocaleString()}</Text>
-                  {item.addLess !== 0 && (
-                    <Text style={styles.receiptItemSub}>{item.addLess > 0 ? '+' : ''}{item.addLess}</Text>
-                  )}
-                </View>
-              </View>
-            ))}
+              );
+            })}
 
             <View style={styles.receiptDivider} />
 
             {/* Receipt Summary */}
+            {hasVariablePackFeature && (
+              <>
+                <View style={styles.receiptSummaryRow}>
+                  <Text style={styles.receiptSummaryLabel}>TOTAL WEIGHT (KG)</Text>
+                  <Text style={styles.receiptSummaryValue}>{customerBill.lines.reduce((s, i) => s + i.qty, 0).toLocaleString()} Kg</Text>
+                </View>
+                <View style={styles.receiptSummaryRow}>
+                  <Text style={styles.receiptSummaryLabel}>TOTAL BAGS</Text>
+                  <Text style={styles.receiptSummaryValue}>
+                    {customerBill.lines.reduce((s, i) => {
+                      const bag = i.secQty ?? (i.qtyInPack && i.qtyInPack > 0 ? Math.round(i.qty / i.qtyInPack) : 0);
+                      return s + bag;
+                    }, 0).toLocaleString()} Bags
+                  </Text>
+                </View>
+              </>
+            )}
             <View style={styles.receiptSummaryRow}>
               <Text style={styles.receiptSummaryLabel}>THIS BILL TOTAL</Text>
               <Text style={styles.receiptSummaryValue}>{customerBill.lines.reduce((s, i) => s + i.amount, 0).toLocaleString()}</Text>

@@ -24,6 +24,7 @@ export interface OrganizationLicense {
   name: string;
   hasSupplyFeature?: boolean;
   hasSecondaryQty?: boolean;
+  hasVariablePackFeature?: boolean;
 }
 
 interface AppState {

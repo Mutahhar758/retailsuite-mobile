@@ -31,6 +31,7 @@ export const AddLicenseModal: React.FC<Props> = ({ visible, onClose, onSuccess }
       const name = tenantData?.name || 'Unknown Organization';
       const hasSupplyFeature = tenantData?.hasSupplyFeature ?? false;
       const hasSecondaryQty = tenantData?.hasSecondaryQty ?? false;
+      const hasVariablePackFeature = tenantData?.hasVariablePackFeature ?? false;
 
       if (tenantIdentifier) {
         addLicense({
@@ -39,6 +40,7 @@ export const AddLicenseModal: React.FC<Props> = ({ visible, onClose, onSuccess }
           name,
           hasSupplyFeature,
           hasSecondaryQty,
+          hasVariablePackFeature,
         });
         Alert.alert('Success', `Successfully added license for ${name}`);
         setLicenseKey('');
