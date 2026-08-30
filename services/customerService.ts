@@ -6,6 +6,12 @@ export interface CustomerSupplyItemDto {
   itemTitle?: string;
   qty: number;
   secQty?: number;
+  /** Override rate. undefined/null means use the item's default rate. */
+  rate?: number;
+  /** Override add/less amount. undefined/null means treat as 0. */
+  addLess?: number;
+  /** Override discount (Rs). undefined/null means treat as 0. */
+  discount?: number;
 }
 
 export interface CustomerResponse {

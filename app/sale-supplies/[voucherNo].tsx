@@ -135,11 +135,17 @@ export default function SaleSupplyFormScreen() {
         itemId ? customerService.getSupplyItems({ itemId }) : Promise.resolve([])
       ]);
 
-      const customerQtyMap = new Map<string, { qty: number; secQty?: number }>();
+      const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; addLess?: number; discount?: number }>();
       if (customSupplyItems && Array.isArray(customSupplyItems)) {
         customSupplyItems.forEach(ci => {
           if (ci.customerAccountId) {
-            customerQtyMap.set(ci.customerAccountId, { qty: ci.qty, secQty: ci.secQty });
+            customerQtyMap.set(ci.customerAccountId, {
+              qty: ci.qty,
+              secQty: ci.secQty,
+              rate: ci.rate,
+              addLess: ci.addLess,
+              discount: ci.discount
+            });
           }
         });
       }
@@ -153,15 +159,18 @@ export default function SaleSupplyFormScreen() {
           const setting = customerQtyMap.get(d.customerId);
           const qty = setting ? setting.qty : 1;
           const secQty = setting ? (setting.secQty || 0) : 0;
+          const rate = setting?.rate != null ? setting.rate : defaultRate;
+          const discount = setting?.discount != null ? setting.discount : 0;
+          const addLess = setting?.addLess != null ? setting.addLess : 0;
 
           return {
             seq: index + 1,
             customerId: d.customerId,
             unit: selectedItem?.defaultUnit || '',
             qty: qty,
-            rate: defaultRate,
-            discount: 0,
-            addLess: 0,
+            rate: rate,
+            discount: discount,
+            addLess: addLess,
             secQty: secQty,
             secRate: selectedItem?.secRate || 0,
             secUnit: selectedItem?.secondaryUnit || '',
@@ -311,15 +320,57 @@ export default function SaleSupplyFormScreen() {
         const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
         const defaultRate = (selectedItem.defaultUnit === selectedItem.secondaryUnit ? selectedItem.secRate : selectedItem.priRate) || 0;
         const secRate = selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1));
-        setLines(prev => prev.map(l => ({
-          ...l,
-          unit: selectedItem.defaultUnit || selectedItem.primaryUnit || l.unit,
-          rate: defaultRate,
-          secUnit: selectedItem.secondaryUnit || l.secUnit,
-          secRate: hasVariablePackFeature ? secRate : (selectedItem.secRate || 0),
-          packQty: pSize,
-          packing: pSize
-        })));
+
+        customerService.getSupplyItems({ itemId: value }).then(customSupplyItems => {
+          const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; addLess?: number; discount?: number }>();
+          if (customSupplyItems && Array.isArray(customSupplyItems)) {
+            customSupplyItems.forEach(ci => {
+              if (ci.customerAccountId) {
+                customerQtyMap.set(ci.customerAccountId, {
+                  qty: ci.qty,
+                  secQty: ci.secQty,
+                  rate: ci.rate,
+                  addLess: ci.addLess,
+                  discount: ci.discount
+                });
+              }
+            });
+          }
+
+          setLines(prev => prev.map(l => {
+            const setting = l.customerId ? customerQtyMap.get(l.customerId) : undefined;
+            const qty = setting ? setting.qty : (l.qty || 1);
+            const secQty = setting ? (setting.secQty || 0) : (l.secQty || 0);
+            const rate = setting?.rate != null ? setting.rate : defaultRate;
+            const discount = setting?.discount != null ? setting.discount : 0;
+            const addLess = setting?.addLess != null ? setting.addLess : 0;
+
+            return {
+              ...l,
+              unit: selectedItem.defaultUnit || selectedItem.primaryUnit || l.unit,
+              qty,
+              secQty,
+              rate,
+              discount,
+              addLess,
+              secUnit: selectedItem.secondaryUnit || l.secUnit,
+              secRate: hasVariablePackFeature ? secRate : (selectedItem.secRate || 0),
+              packQty: pSize,
+              packing: pSize
+            };
+          }));
+        }).catch(err => {
+          console.error('Failed to load item default customer quantities', err);
+          setLines(prev => prev.map(l => ({
+            ...l,
+            unit: selectedItem.defaultUnit || selectedItem.primaryUnit || l.unit,
+            rate: defaultRate,
+            secUnit: selectedItem.secondaryUnit || l.secUnit,
+            secRate: hasVariablePackFeature ? secRate : (selectedItem.secRate || 0),
+            packQty: pSize,
+            packing: pSize
+          })));
+        });
       }
     } else if (selectModalType === 'narration') {
       setNarration(value);
@@ -329,7 +380,28 @@ export default function SaleSupplyFormScreen() {
         loadFromSupplyOrder(value);
       }
     } else if (selectModalType === 'customer' && activeLineSeq) {
-      updateLine(activeLineSeq, { customerId: value });
+      if (itemId) {
+        customerService.getSupplyItems({ customerId: value, itemId }).then(customItems => {
+          const setting = customItems && customItems.length > 0 ? customItems[0] : undefined;
+          const qty = setting && setting.qty > 0 ? setting.qty : 1;
+          const secQty = setting?.secQty || 0;
+          // rate: use override if set, otherwise keep current line rate (item default was already applied)
+          const currentLine = lines.find(l => l.seq === activeLineSeq);
+          const currentDefaultRate = items.find(i => i.id === itemId);
+          const itemDefaultRate = currentDefaultRate
+            ? (currentDefaultRate.defaultUnit === currentDefaultRate.secondaryUnit
+                ? currentDefaultRate.secRate : currentDefaultRate.priRate) || 0
+            : 0;
+          const rate = setting?.rate != null ? setting.rate : (currentLine?.rate ?? itemDefaultRate);
+          const discount = setting?.discount != null ? setting.discount : 0;
+          const addLess = setting?.addLess != null ? setting.addLess : 0;
+          updateLine(activeLineSeq, { customerId: value, qty, secQty, rate, discount, addLess });
+        }).catch(() => {
+          updateLine(activeLineSeq, { customerId: value });
+        });
+      } else {
+        updateLine(activeLineSeq, { customerId: value });
+      }
     } else if (selectModalType === 'unit' && activeLineSeq) {
       const selectedItem = items.find(i => i.id === itemId);
       let newRate = undefined;
@@ -346,6 +418,7 @@ export default function SaleSupplyFormScreen() {
     }
     setSelectModalVisible(false);
   };
+
 
   const getSelectedItemName = () => items.find(i => i.id === itemId)?.title || 'Select Item';
   const getSelectedNarrationName = () => narrations.find(n => n.code === narration)?.title || 'Select Narration';
