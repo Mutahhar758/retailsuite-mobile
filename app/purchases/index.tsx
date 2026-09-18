@@ -44,7 +44,18 @@ export default function PurchasesListScreen() {
       >
         <View style={styles.cardHeader}>
           <Text style={styles.voucherNo}>PU-{String(item.voucherNo).padStart(5, '0')}</Text>
-          <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={[styles.date, { marginRight: 10 }]}>{new Date(item.date).toLocaleDateString()}</Text>
+            <TouchableOpacity 
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                router.push({ pathname: '/purchases/[voucherNo]' as any, params: { voucherNo: item.voucherNo, mode: 'copy' } });
+              }}
+            >
+              <Ionicons name="copy-outline" size={17} color={Theme.colors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.account} numberOfLines={1}>{item.account || 'Unknown Supplier'}</Text>

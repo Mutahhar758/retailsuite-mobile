@@ -1,24 +1,28 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useCallback, useMemo } from 'react';
+import { 
+  View, Text, StyleSheet, FlatList, TouchableOpacity, 
+  SafeAreaView, ActivityIndicator, RefreshControl, TextInput 
+} from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
-import { saleSupplyService, SaleSupply } from '../../services/saleSupplyService';
+import { saleService, SaleDto } from '../../services/saleService';
 
-export default function SaleSuppliesListScreen() {
+export default function SalesListScreen() {
   const router = useRouter();
-  const [supplies, setSupplies] = useState<SaleSupply[]>([]);
+  const [sales, setSales] = useState<SaleDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchSupplies = useCallback(async () => {
+  const fetchSales = useCallback(async () => {
     try {
-      const data = await saleSupplyService.getList();
-      setSupplies(data);
+      const data = await saleService.getList();
+      setSales(data || []);
     } catch (error) {
-      console.error('Failed to fetch sale supplies', error);
+      console.error('Failed to fetch sales', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -27,49 +31,52 @@ export default function SaleSuppliesListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchSupplies();
-    }, [fetchSupplies])
+      fetchSales();
+    }, [fetchSales])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchSupplies();
+    fetchSales();
   };
 
-  const renderItem = ({ item, index }: { item: SaleSupply; index: number }) => (
-    <Animated.View entering={FadeInUp.delay(index * 50).duration(400)}>
+  const filteredSales = useMemo(() => {
+    if (!searchQuery.trim()) return sales;
+    const q = searchQuery.toLowerCase().trim();
+    return sales.filter(s => 
+      (s.voucherNo && s.voucherNo.toLowerCase().includes(q)) ||
+      (s.account && s.account.toLowerCase().includes(q)) ||
+      (s.createdBy && s.createdBy.toLowerCase().includes(q))
+    );
+  }, [sales, searchQuery]);
+
+  const renderItem = ({ item, index }: { item: SaleDto; index: number }) => (
+    <Animated.View entering={FadeInUp.delay(Math.min(index * 40, 400)).duration(400)}>
       <TouchableOpacity 
         style={styles.card} 
-        onPress={() => router.push(`/sale-supplies/${item.voucherNo}`)}
+        onPress={() => router.push(`/sales/${item.voucherNo}` as any)}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.voucherNo}>SP-{String(item.voucherNo).padStart(5, '0')}</Text>
+          <View style={styles.voucherBadge}>
+            <Text style={styles.voucherNo}>SL-{String(item.voucherNo).padStart(5, '0')}</Text>
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={[styles.date, { marginRight: 10 }]}>{new Date(item.date).toLocaleDateString()}</Text>
             <TouchableOpacity 
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               onPress={(e) => {
                 e.stopPropagation?.();
-                router.push({ pathname: '/sale-supplies/[voucherNo]', params: { voucherNo: item.voucherNo, mode: 'copy' } });
+                router.push({ pathname: '/sales/[voucherNo]' as any, params: { voucherNo: item.voucherNo, mode: 'copy' } });
               }}
             >
               <Ionicons name="copy-outline" size={17} color={Theme.colors.primary} />
             </TouchableOpacity>
           </View>
         </View>
-        
         <View style={styles.cardBody}>
-          <Text style={styles.title} numberOfLines={1}>{item.item || 'Unknown Item'}</Text>
-          {!!item.supplyOrderTitle && (
-            <View style={styles.profileBadge}>
-              <Ionicons name="document-text-outline" size={12} color="#1d4ed8" style={{ marginRight: 4 }} />
-              <Text style={styles.profileText} numberOfLines={1}>
-                {item.supplyOrderTitle}
-              </Text>
-            </View>
-          )}
+          <Text style={styles.account} numberOfLines={1}>{item.account || 'Walk-in Customer'}</Text>
+          <Text style={styles.amount}>Rs. {(item.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}</Text>
         </View>
-
         <View style={styles.cardFooter}>
           <View style={{ flex: 1 }}>
             <View style={styles.infoRow}>
@@ -95,13 +102,30 @@ export default function SaleSuppliesListScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by customer or voucher #..."
+          placeholderTextColor={Theme.colors.textSecondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={18} color={Theme.colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Theme.colors.primary} />
         </View>
       ) : (
         <FlatList
-          data={supplies}
+          data={filteredSales}
           keyExtractor={(item) => item.voucherNo}
           renderItem={renderItem}
           contentContainerStyle={styles.listContainer}
@@ -110,8 +134,10 @@ export default function SaleSuppliesListScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Ionicons name="car-outline" size={64} color={Theme.colors.border} />
-              <Text style={styles.emptyText}>No sale supplies found.</Text>
+              <Ionicons name="receipt-outline" size={64} color={Theme.colors.border} />
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No matching sales found.' : 'No sales found.'}
+              </Text>
             </View>
           }
         />
@@ -119,16 +145,8 @@ export default function SaleSuppliesListScreen() {
 
       <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.fabContainer}>
         <TouchableOpacity
-          style={styles.registerFab}
-          onPress={() => router.push('/sale-supplies/customer-register')}
-        >
-          <Ionicons name="people-outline" size={20} color={Theme.colors.primary} style={{ marginRight: 6 }} />
-          <Text style={styles.registerFabText}>Customer Register</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={styles.fab}
-          onPress={() => router.push('/sale-supplies/new')}
+          onPress={() => router.push('/sales/new' as any)}
         >
           <Ionicons name="add" size={30} color={Theme.colors.white} />
         </TouchableOpacity>
@@ -141,6 +159,27 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: Theme.colors.background,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.white,
+    marginHorizontal: Theme.spacing.md,
+    marginTop: Theme.spacing.sm,
+    marginBottom: Theme.spacing.xs,
+    paddingHorizontal: Theme.spacing.md,
+    borderRadius: Theme.radii.md,
+    height: 44,
+    ...Theme.shadows.sm,
+  },
+  searchIcon: {
+    marginRight: Theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    ...Theme.typography.body,
+    color: Theme.colors.text,
+    height: '100%',
   },
   centered: {
     flex: 1,
@@ -161,7 +200,14 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: Theme.spacing.xs,
+  },
+  voucherBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   voucherNo: {
     ...Theme.typography.bodyMedium,
@@ -173,26 +219,22 @@ const styles = StyleSheet.create({
     color: Theme.colors.textSecondary,
   },
   cardBody: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
     marginBottom: Theme.spacing.sm,
   },
-  title: {
-    ...Theme.typography.h3,
+  account: {
+    ...Theme.typography.body,
     color: Theme.colors.text,
-  },
-  profileBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 6,
-  },
-  profileText: {
-    ...Theme.typography.caption,
-    color: '#1d4ed8',
+    flex: 1,
+    marginRight: Theme.spacing.sm,
     fontWeight: '600',
+  },
+  amount: {
+    ...Theme.typography.h3,
+    color: Theme.colors.primary,
   },
   cardFooter: {
     flexDirection: 'row',
@@ -230,31 +272,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: Theme.spacing.lg,
     right: Theme.spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  registerFab: {
-    backgroundColor: Theme.colors.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 25,
-    borderWidth: 1.5,
-    borderColor: Theme.colors.primary,
-    ...Theme.shadows.md,
-  },
-  registerFabText: {
-    color: Theme.colors.primary,
-    fontWeight: '700',
-    fontSize: 14,
   },
   fab: {
     backgroundColor: Theme.colors.primary,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     ...Theme.shadows.md,

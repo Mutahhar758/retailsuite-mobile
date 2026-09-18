@@ -94,7 +94,7 @@ export default function SaleSupplyFormScreen() {
       const details = await saleSupplyService.getDetail(voucherNo!);
       if (details && details.length > 0) {
         const first = details[0];
-        setDate(dayjs(first.date).toDate());
+        setDate(mode === 'copy' ? new Date() : dayjs(first.date).toDate());
         setItemId(first.itemId || '');
         setNarration(first.narrationId || '');
         setDescription(first.description || '');
@@ -504,6 +504,7 @@ export default function SaleSupplyFormScreen() {
       { 
         text: 'Copy', 
         onPress: () => {
+          setDate(new Date());
           router.replace({ pathname: '/sale-supplies/[voucherNo]', params: { voucherNo: voucherNo, mode: 'copy' } });
         }
       }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, Modal
@@ -41,6 +41,9 @@ export default function PurchaseFormScreen() {
   const [supplierAccount, setSupplierAccount] = useState('');
   const [narration, setNarration] = useState('');
   const [description, setDescription] = useState('');
+  const [cashPaid, setCashPaid] = useState<string>('');
+  const [cashBack, setCashBack] = useState<string>('0');
+  const prevTotalRef = useRef<number>(0);
   
   // Lines State
   const [lines, setLines] = useState<PurchaseLineRequest[]>([]);
@@ -71,7 +74,7 @@ export default function PurchaseFormScreen() {
       setItems(itms);
       setUnits(unts);
       
-      if (isEdit) {
+      if (voucherNo && voucherNo !== 'new') {
         await loadVoucherDetails();
       } else {
         setLoading(false);
@@ -87,10 +90,14 @@ export default function PurchaseFormScreen() {
       const details = await purchaseService.getDetail(voucherNo!);
       if (details && details.length > 0) {
         const first = details[0];
-        setDate(new Date(first.date));
+        setDate(mode === 'copy' ? new Date() : new Date(first.date));
         setSupplierAccount(first.accountId);
         setNarration(first.narrationId || '');
         setDescription(first.description || '');
+        if ((first as any).cashPaid !== undefined && (first as any).cashPaid !== null) {
+          setCashPaid(String((first as any).cashPaid));
+          setCashBack(String((first as any).cashBack || 0));
+        }
         
         const mappedLines = details.map(d => ({
           seq: d.seq,
@@ -326,6 +333,8 @@ export default function PurchaseFormScreen() {
         account: supplierAccount,
         narration: narration || undefined,
         description: description || undefined,
+        cashPaid: parseFloat(cashPaid) || 0,
+        cashBack: parseFloat(cashBack) || 0,
         lines: cleanedLines
       };
 
@@ -369,8 +378,9 @@ export default function PurchaseFormScreen() {
       { 
         text: 'Copy', 
         onPress: () => {
+          setDate(new Date());
           router.replace({ pathname: '/purchases/[voucherNo]' as any, params: { voucherNo: voucherNo, mode: 'copy' } });
-        }
+        } 
       }
     ]);
   };
@@ -383,6 +393,37 @@ export default function PurchaseFormScreen() {
       return sum + (l.qty * l.rate + l.addLess + ((l.secQty ?? 0) * (l.secRate ?? 0)));
     }, 0);
   }, [lines, hasVariablePackFeature]);
+
+  const numCashPaid = parseFloat(cashPaid) || 0;
+  const numCashBack = parseFloat(cashBack) || 0;
+  const balance = totalAmount - numCashPaid + numCashBack;
+
+  useEffect(() => {
+    if (!isEdit || mode === 'copy') {
+      const isAutoSynced = !cashPaid || parseFloat(cashPaid) === 0 || parseFloat(cashPaid) === prevTotalRef.current;
+      if (isAutoSynced) {
+        setCashPaid(totalAmount > 0 ? totalAmount.toString() : '');
+        setCashBack('0');
+      } else {
+        const excess = Math.max(0, numCashPaid - totalAmount);
+        setCashBack(excess > 0 ? excess.toFixed(2) : '0');
+      }
+      prevTotalRef.current = totalAmount;
+    } else if (isEdit && !loading) {
+      const excess = Math.max(0, numCashPaid - totalAmount);
+      setCashBack(excess > 0 ? excess.toFixed(2) : '0');
+    }
+  }, [totalAmount, isEdit, mode, loading]);
+
+  const handleCashPaidChange = (text: string) => {
+    setCashPaid(text);
+    const paid = parseFloat(text) || 0;
+    if (paid > totalAmount) {
+      setCashBack((paid - totalAmount).toFixed(2));
+    } else {
+      setCashBack('0');
+    }
+  };
 
   if (loading) {
     return (
@@ -520,6 +561,60 @@ export default function PurchaseFormScreen() {
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total Amount</Text>
               <Text style={styles.totalValue}>Rs. {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+            </View>
+          </Animated.View>
+
+          {/* Cash Payment Details Section */}
+          <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Payment Details</Text>
+
+            <View style={[styles.row, { marginTop: Theme.spacing.sm }]}>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                <Text style={styles.label}>Cash Paid</Text>
+                <TextInput
+                  style={styles.textInput}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  placeholderTextColor={Theme.colors.textSecondary}
+                  value={cashPaid}
+                  onChangeText={handleCashPaidChange}
+                />
+              </View>
+
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.label}>Cash Back</Text>
+                <TextInput
+                  style={styles.textInput}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  placeholderTextColor={Theme.colors.textSecondary}
+                  value={cashBack}
+                  onChangeText={setCashBack}
+                />
+              </View>
+            </View>
+
+            <View style={styles.balanceContainer}>
+              <View>
+                <Text style={styles.balanceLabel}>NET BALANCE</Text>
+                <View style={[
+                  styles.statusBadge, 
+                  balance === 0 ? styles.badgeSettled : balance > 0 ? styles.badgePayable : styles.badgeChange
+                ]}>
+                  <Text style={[
+                    styles.statusBadgeText,
+                    balance === 0 ? styles.textSettled : balance > 0 ? styles.textPayable : styles.textChange
+                  ]}>
+                    {balance === 0 ? 'SETTLED' : balance > 0 ? 'PAYABLE' : 'CHANGE'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[
+                styles.balanceAmount,
+                balance > 0 ? styles.amountPayable : styles.amountSettled
+              ]}>
+                Rs. {Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </Text>
             </View>
           </Animated.View>
 
@@ -810,7 +905,6 @@ export default function PurchaseFormScreen() {
                     .map(u => (
                       <TouchableOpacity key={u.code} style={styles.modalListItem} onPress={() => handleSelect(u.code)}>
                         <Text style={styles.modalListItemText}>{u.title}</Text>
-                        <Text style={styles.modalListItemSub}>{u.code}</Text>
                       </TouchableOpacity>
                     ));
                 })()}
@@ -1101,5 +1195,61 @@ const styles = StyleSheet.create({
     ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
     marginTop: 2,
+  },
+  balanceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.radii.md,
+    padding: Theme.spacing.md,
+    marginTop: Theme.spacing.md,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  balanceLabel: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Theme.radii.sm,
+    alignSelf: 'flex-start',
+  },
+  badgeSettled: {
+    backgroundColor: 'rgba(72, 187, 120, 0.15)',
+  },
+  badgePayable: {
+    backgroundColor: 'rgba(236, 201, 75, 0.2)',
+  },
+  badgeChange: {
+    backgroundColor: 'rgba(108, 99, 255, 0.15)',
+  },
+  statusBadgeText: {
+    ...Theme.typography.small,
+    fontWeight: '700',
+  },
+  textSettled: {
+    color: Theme.colors.success,
+  },
+  textPayable: {
+    color: '#D69E2E',
+  },
+  textChange: {
+    color: Theme.colors.primary,
+  },
+  balanceAmount: {
+    ...Theme.typography.h2,
+    fontWeight: '700',
+  },
+  amountPayable: {
+    color: Theme.colors.danger,
+  },
+  amountSettled: {
+    color: Theme.colors.success,
   },
 });

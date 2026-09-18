@@ -17,10 +17,11 @@ export default function DataEntryScreen() {
   };
 
   const showReceipts = hasPermission('View', 'ReceiptVouchers');
-  const showSaleSupplies = hasPermission('View', 'SaleSupplies') || hasPermission('View', 'Sales') || hasPermission('View', 'POSSales');
+  const showSales = hasPermission('View', 'Sales') || hasPermission('View', 'POSSales');
+  const showSaleSupplies = hasPermission('View', 'SaleSupplies');
   const showPayments = hasPermission('View', 'PaymentVouchers');
   const showPurchases = hasPermission('View', 'Purchases');
-  const noDataEntryVisible = !showReceipts && !showSaleSupplies && !showPayments && !showPurchases;
+  const noDataEntryVisible = !showReceipts && !showSales && !showSaleSupplies && !showPayments && !showPurchases;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -61,6 +62,22 @@ export default function DataEntryScreen() {
                 <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
               </TouchableOpacity>
             </>
+          )}
+
+          {showSales && (
+            <TouchableOpacity 
+              style={styles.card}
+              onPress={() => router.push('/sales' as any)}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: Theme.colors.primary + '20' }]}>
+                <Ionicons name="pricetag-outline" size={32} color={Theme.colors.primary} />
+              </View>
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>Sale</Text>
+                <Text style={styles.cardDesc}>Create and manage customer sale vouchers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
           )}
 
           {showSaleSupplies && (

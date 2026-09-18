@@ -1,6 +1,6 @@
 import api from './api';
 
-export interface PurchaseDto {
+export interface SaleDto {
   date: string;
   voucherNo: string;
   account: string;
@@ -11,7 +11,7 @@ export interface PurchaseDto {
   lastModifiedOn?: string;
 }
 
-export interface PurchaseLineDto {
+export interface SaleLineDto {
   seq: number;
   date: string;
   voucherNo: string;
@@ -25,14 +25,14 @@ export interface PurchaseLineDto {
   unit?: string;
   qty: number;
   rate: number;
-  addLess: number;
+  discount: number;
   amount: number;
+  secUnit?: string;
   secQty?: number;
   secRate?: number;
-  secUnit?: string;
   qtyInPack?: number;
   packing?: number;
-  cashPaid?: number;
+  cashReceipt?: number;
   cashBack?: number;
   createdBy: string;
   createdOn: string;
@@ -40,71 +40,72 @@ export interface PurchaseLineDto {
   lastModifiedOn?: string;
 }
 
-export interface PurchaseLineRequest {
+export interface SaleLineRequest {
   seq: number;
   itemId: string;
   unit?: string;
   qty: number;
   rate: number;
-  addLess: number;
+  discount: number;
+  secUnit?: string;
   secQty?: number;
   secRate?: number;
-  secUnit?: string;
   qtyInPack?: number | null;
   packing?: number | null;
   packQty?: number;
 }
 
-export interface PurchaseCreateRequest {
+export interface SaleCreateRequest {
   date: string;
   account: string;
   description?: string;
   narration?: string;
-  cashPaid?: number;
+  cashReceipt?: number;
   cashBack?: number;
-  lines: PurchaseLineRequest[];
+  lines: SaleLineRequest[];
 }
 
-export interface PurchaseUpdateRequest {
+export interface SaleUpdateRequest {
   date: string;
   account: string;
   description?: string;
   narration?: string;
-  cashPaid?: number;
+  cashReceipt?: number;
   cashBack?: number;
-  lines: PurchaseLineRequest[];
+  lines: SaleLineRequest[];
 }
 
-export const purchaseService = {
+export const saleService = {
   async getList(params?: {
     fromDate?: string;
     toDate?: string;
     account?: string;
     voucherNo?: string;
+    searchTerm?: string;
   }) {
-    const response = await api.get('/api/purchases', { params });
-    return response.data.body as PurchaseDto[];
+    const response = await api.get('/api/sales', { params });
+    return response.data.body as SaleDto[];
   },
 
   async getDetail(voucherNo: string) {
-    const response = await api.get(`/api/purchases/${voucherNo}`);
-    return response.data.body as PurchaseLineDto[];
+    const response = await api.get(`/api/sales/${voucherNo}`);
+    return response.data.body as SaleLineDto[];
   },
 
-  async create(request: PurchaseCreateRequest) {
-    const response = await api.post('/api/purchases', request);
+  async create(request: SaleCreateRequest) {
+    const response = await api.post('/api/sales', request);
     return response.data.body as string;
   },
 
-  async update(voucherNo: string, request: PurchaseUpdateRequest) {
-    await api.put(`/api/purchases/${voucherNo}`, request);
+  async update(voucherNo: string, request: SaleUpdateRequest) {
+    await api.put(`/api/sales/${voucherNo}`, request);
   },
 
   async delete(voucherNo: string) {
-    await api.delete(`/api/purchases/${voucherNo}`);
+    await api.delete(`/api/sales/${voucherNo}`);
   },
 
   async deleteLine(voucherNo: string, seq: number) {
-    await api.delete(`/api/purchases/${voucherNo}/lines/${seq}`);
+    await api.delete(`/api/sales/${voucherNo}/lines/${seq}`);
   },
 };
