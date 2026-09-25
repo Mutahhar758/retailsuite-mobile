@@ -35,6 +35,11 @@ export const chartOfAccountService = {
   async getSupplierAccounts() {
     const response = await api.get('/api/chartofaccounts/suppliers');
     return response.data.body as ChartOfAccountHeadDto[];
+  },
+
+  async getHeads(level: number = 4) {
+    const response = await api.get('/api/chartofaccounts/heads', { params: { level } });
+    return response.data.body as ChartOfAccountHeadDto[];
   }
 };
 
