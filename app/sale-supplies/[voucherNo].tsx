@@ -55,7 +55,7 @@ export default function SaleSupplyFormScreen() {
 
   // Modal State for Selectors
   const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder'>('item');
+  const [selectModalType, setSelectModalType] = useState<'item' | 'customer' | 'narration' | 'supplyOrder'>('item');
   const [activeLineSeq, setActiveLineSeq] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [lineSearchQuery, setLineSearchQuery] = useState('');
@@ -305,7 +305,7 @@ export default function SaleSupplyFormScreen() {
     }));
   };
 
-  const openSelector = (type: 'item' | 'customer' | 'narration' | 'unit' | 'supplyOrder', seq?: number) => {
+  const openSelector = (type: 'item' | 'customer' | 'narration' | 'supplyOrder', seq?: number) => {
     setSelectModalType(type);
     if (seq) setActiveLineSeq(seq);
     setSearchQuery('');
@@ -402,19 +402,6 @@ export default function SaleSupplyFormScreen() {
       } else {
         updateLine(activeLineSeq, { customerId: value });
       }
-    } else if (selectModalType === 'unit' && activeLineSeq) {
-      const selectedItem = items.find(i => i.id === itemId);
-      let newRate = undefined;
-      
-      if (selectedItem) {
-        if (value === selectedItem.primaryUnit) newRate = selectedItem.priRate || 0;
-        else if (value === selectedItem.secondaryUnit) newRate = selectedItem.secRate || 0;
-      }
-      
-      const updates: Partial<SaleSupplyLineRequest> = { unit: value };
-      if (newRate !== undefined) updates.rate = newRate;
-      
-      updateLine(activeLineSeq, updates);
     }
     setSelectModalVisible(false);
   };
@@ -762,12 +749,6 @@ export default function SaleSupplyFormScreen() {
                 ) : !hasSecondaryQty ? (
                   <View style={styles.row}>
                     <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                      <Text style={styles.label}>Unit</Text>
-                      <TouchableOpacity style={[styles.selector, { paddingHorizontal: 6 }]} onPress={() => openSelector('unit', line.seq)}>
-                        <Text style={[styles.selectorText, !line.unit && styles.placeholder]} numberOfLines={1}>{getUnitName(line.unit)}</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
                       <Text style={styles.label}>Qty</Text>
                       <TextInput
                         style={styles.textInput}
@@ -913,8 +894,7 @@ export default function SaleSupplyFormScreen() {
               <Text style={styles.modalTitle}>
                 {selectModalType === 'item' ? 'Select Item' :
                  selectModalType === 'customer' ? 'Select Customer' :
-                 selectModalType === 'narration' ? 'Select Narration' : 
-                 selectModalType === 'supplyOrder' ? 'Select Supply Order' : 'Select Unit'}
+                 selectModalType === 'narration' ? 'Select Narration' : 'Select Supply Order'}
               </Text>
               <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
                 <Ionicons name="close" size={24} color={Theme.colors.text} />
@@ -958,17 +938,7 @@ export default function SaleSupplyFormScreen() {
                   <Text style={styles.modalItemText}>{n.title}</Text>
                 </TouchableOpacity>
               ))}
-              {selectModalType === 'unit' && units
-                .filter(u => {
-                  const selectedItem = items.find(i => i.id === itemId);
-                  return !selectedItem || u.code === selectedItem.primaryUnit || u.code === selectedItem.secondaryUnit;
-                })
-                .filter(u => u.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map(u => (
-                <TouchableOpacity key={u.code} style={styles.modalItem} onPress={() => handleSelect(u.code)}>
-                  <Text style={styles.modalItemText}>{u.title}</Text>
-                </TouchableOpacity>
-              ))}
+
               {selectModalType === 'supplyOrder' && supplyOrders
                 .filter(o => o.title.toLowerCase().includes(searchQuery.toLowerCase()))
                 .map(o => (

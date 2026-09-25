@@ -54,7 +54,7 @@ export default function SaleFormScreen() {
 
   // Searchable Selection Modal State
   const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'customer' | 'narration' | 'item' | 'unit'>('customer');
+  const [selectModalType, setSelectModalType] = useState<'customer' | 'narration' | 'item'>('customer');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export default function SaleFormScreen() {
     }
   };
 
-  const openSelectModal = (type: 'customer' | 'narration' | 'item' | 'unit') => {
+  const openSelectModal = (type: 'customer' | 'narration' | 'item') => {
     setSelectModalType(type);
     setSearchQuery('');
     setSelectModalVisible(true);
@@ -163,21 +163,6 @@ export default function SaleFormScreen() {
         secQty: 0,
         packQty,
         packing
-      }));
-    } else if (selectModalType === 'unit') {
-      const selectedItem = items.find(i => i.id === currentLine.itemId);
-      let rate = currentLine.rate || 0;
-      if (selectedItem) {
-        if (val === selectedItem.primaryUnit || getUnitTitle(val) === getUnitTitle(selectedItem.primaryUnit)) {
-          rate = selectedItem.priRate || 0;
-        } else if (val === selectedItem.secondaryUnit || getUnitTitle(val) === getUnitTitle(selectedItem.secondaryUnit)) {
-          rate = selectedItem.secRate || 0;
-        }
-      }
-      setCurrentLine(prev => ({
-        ...prev,
-        unit: val,
-        rate: rate
       }));
     }
     setSelectModalVisible(false);
@@ -477,22 +462,9 @@ export default function SaleFormScreen() {
         (i.itemKey && i.itemKey.toLowerCase().includes(q)) ||
         (i.barcode && i.barcode.toLowerCase().includes(q))
       );
-    } else if (selectModalType === 'unit') {
-      const selectedItem = items.find(i => i.id === currentLine.itemId);
-      const allowedUnits = selectedItem
-        ? units.filter(u => 
-            u.code === selectedItem.primaryUnit || 
-            u.code === selectedItem.secondaryUnit ||
-            u.title === selectedItem.primaryUnit ||
-            u.title === selectedItem.secondaryUnit
-          )
-        : units;
-      return allowedUnits.filter(u => 
-        u.title.toLowerCase().includes(q) || u.code.toLowerCase().includes(q)
-      );
     }
     return [];
-  }, [selectModalType, searchQuery, customers, narrations, items, units, currentLine.itemId]);
+  }, [selectModalType, searchQuery, customers, narrations, items, currentLine.itemId]);
 
   if (loading) {
     return (
@@ -821,20 +793,6 @@ export default function SaleFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Unit Selector */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Unit</Text>
-                  <TouchableOpacity 
-                    style={styles.selector}
-                    onPress={() => openSelectModal('unit')}
-                  >
-                    <Text style={[styles.selectorText, !currentLine.unit && { color: Theme.colors.textSecondary }]}>
-                      {getUnitTitle(currentLine.unit) || 'Select Unit'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-
                 {/* Qty and Rate */}
                 <View style={styles.row}>
                   <View style={[styles.formGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
@@ -847,7 +805,7 @@ export default function SaleFormScreen() {
                     />
                   </View>
                   <View style={[styles.formGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Unit Rate (Rs.) *</Text>
+                    <Text style={styles.label}>Rate (Rs.) *</Text>
                     <TextInput
                       style={styles.textInput}
                       keyboardType="numeric"
@@ -859,7 +817,7 @@ export default function SaleFormScreen() {
 
                 {/* Discount */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>Discount (Rs. per unit)</Text>
+                  <Text style={styles.label}>Discount (Rs.)</Text>
                   <TextInput
                     style={styles.textInput}
                     keyboardType="numeric"
@@ -954,7 +912,6 @@ export default function SaleFormScreen() {
                   {selectModalType === 'customer' && 'Select Customer'}
                   {selectModalType === 'narration' && 'Select Narration'}
                   {selectModalType === 'item' && 'Select Product Item'}
-                  {selectModalType === 'unit' && 'Select Unit'}
                 </Text>
                 <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
                   <Ionicons name="close" size={24} color={Theme.colors.text} />
@@ -990,10 +947,6 @@ export default function SaleFormScreen() {
                     val = item.id;
                     title = item.title;
                     subtitle = `Rate: Rs. ${item.priRate || 0}${item.barcode ? ` | Barcode: ${item.barcode}` : ''}`;
-                  } else if (selectModalType === 'unit') {
-                    val = item.code || item.title;
-                    title = item.title;
-                    subtitle = '';
                   }
 
                   return (

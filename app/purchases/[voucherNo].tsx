@@ -54,7 +54,7 @@ export default function PurchaseFormScreen() {
 
   // Searchable Selection Modal State
   const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'supplier' | 'narration' | 'item' | 'unit'>('supplier');
+  const [selectModalType, setSelectModalType] = useState<'supplier' | 'narration' | 'item'>('supplier');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export default function PurchaseFormScreen() {
     }
   };
 
-  const openSelectModal = (type: 'supplier' | 'narration' | 'item' | 'unit') => {
+  const openSelectModal = (type: 'supplier' | 'narration' | 'item') => {
     setSelectModalType(type);
     setSearchQuery('');
     setSelectModalVisible(true);
@@ -160,21 +160,6 @@ export default function PurchaseFormScreen() {
         secQty: 0,
         packQty,
         packing
-      }));
-    } else if (selectModalType === 'unit') {
-      const selectedItem = items.find(i => i.id === currentLine.itemId);
-      let rate = currentLine.rate || 0;
-      if (selectedItem) {
-        if (val === selectedItem.primaryUnit) {
-          rate = selectedItem.priRate || 0;
-        } else if (val === selectedItem.secondaryUnit) {
-          rate = selectedItem.secRate || 0;
-        }
-      }
-      setCurrentLine(prev => ({
-        ...prev,
-        unit: val,
-        rate: rate
       }));
     }
     setSelectModalVisible(false);
@@ -666,21 +651,7 @@ export default function PurchaseFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {!hasSecondaryQty && !hasVariablePackFeature && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Unit</Text>
-                    <TouchableOpacity 
-                      style={styles.pickerContainer}
-                      onPress={() => openSelectModal('unit')}
-                      disabled={!currentLine.itemId}
-                    >
-                      <Text style={[styles.selectorText, !currentLine.unit && { color: Theme.colors.textSecondary }]}>
-                        {currentLine.unit ? units.find(u => u.code === currentLine.unit)?.title || currentLine.unit : 'Select Unit'}
-                      </Text>
-                      <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                )}
+
 
                 {hasVariablePackFeature ? (
                   <>
@@ -842,8 +813,7 @@ export default function PurchaseFormScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
                   {selectModalType === 'supplier' ? 'Select Supplier' :
-                   selectModalType === 'narration' ? 'Select Narration' :
-                   selectModalType === 'item' ? 'Select Item' : 'Select Unit'}
+                   selectModalType === 'narration' ? 'Select Narration' : 'Select Item'}
                 </Text>
                 <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
                   <Ionicons name="close" size={24} color={Theme.colors.text} />
@@ -894,20 +864,6 @@ export default function PurchaseFormScreen() {
                   </TouchableOpacity>
                 ))}
 
-                {selectModalType === 'unit' && (() => {
-                  const selectedItem = items.find(i => i.id === currentLine.itemId);
-                  const allowedUnits = selectedItem 
-                    ? units.filter(u => u.code === selectedItem.primaryUnit || u.code === selectedItem.secondaryUnit)
-                    : units;
-                  
-                  return allowedUnits
-                    .filter(u => u.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map(u => (
-                      <TouchableOpacity key={u.code} style={styles.modalListItem} onPress={() => handleSelect(u.code)}>
-                        <Text style={styles.modalListItemText}>{u.title}</Text>
-                      </TouchableOpacity>
-                    ));
-                })()}
               </ScrollView>
             </View>
           </View>

@@ -13,7 +13,7 @@ import {
   saleSupplyService, SaleSupplyLine, SaleSupplyCustomerLineUpdateRequest
 } from '../../services/saleSupplyService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
-import { inventoryService, Item, Unit } from '../../services/inventoryService';
+import { inventoryService, Item } from '../../services/inventoryService';
 import { useAppStore } from '../../store/appStore';
 
 interface EditableLine extends SaleSupplyLine {
@@ -34,7 +34,6 @@ export default function CustomerSupplyRegisterScreen() {
   // Lookups
   const [customers, setCustomers] = useState<ChartOfAccountHeadDto[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
 
   // Filters
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -80,14 +79,12 @@ export default function CustomerSupplyRegisterScreen() {
 
   const loadLookups = async () => {
     try {
-      const [cusData, itemData, unitData] = await Promise.all([
+      const [cusData, itemData] = await Promise.all([
         chartOfAccountService.getCustomerAccounts(),
-        inventoryService.getItemsLookup(),
-        inventoryService.getUnitsLookup()
+        inventoryService.getItemsLookup()
       ]);
       setCustomers(cusData);
       setItems(itemData);
-      setUnits(unitData);
     } catch (error) {
       console.error('Failed to load lookups', error);
     }
