@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 
 import { Theme } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
+import { useAppStore } from '../../store/appStore';
 import {
   reportService,
   AccountStatementLine,
@@ -173,6 +174,9 @@ const ALL_REPORTS: ReportMeta[] = [
 
 export default function ReportsScreen() {
   const { user, permissions } = useAuthStore();
+  const { licenses, currentTenantIdentifier } = useAppStore();
+  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const hasVariablePackFeature = currentOrg?.hasVariablePackFeature ?? false;
 
   const hasPermission = (permission: string) => {
     if (user?.isOwner) return true;
@@ -430,6 +434,7 @@ export default function ReportsScreen() {
             account: selectedCustomerId,
             dateBasis,
             layout: customerBillLayout,
+            isWandaLayout: hasVariablePackFeature,
           });
           break;
 
@@ -1253,6 +1258,22 @@ export default function ReportsScreen() {
                     <Text style={[styles.metricValue, { color: '#4338ca' }]}>Rs. {reportData.summary.balance.toLocaleString()}</Text>
                   </View>
                 </View>
+                {hasVariablePackFeature && reportData?.lines?.length > 0 && (
+                  <View style={[styles.metricGrid, { marginTop: 6 }]}>
+                    <View style={[styles.metricBox, { backgroundColor: '#fffbeb' }]}>
+                      <Text style={styles.metricLabel}>Total Weight (Kg)</Text>
+                      <Text style={[styles.metricValue, { color: '#b45309' }]}>
+                        {reportData.lines.reduce((acc: number, l: any) => acc + (l.qty || 0), 0).toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={[styles.metricBox, { backgroundColor: '#fef3c7' }]}>
+                      <Text style={styles.metricLabel}>Total Bags</Text>
+                      <Text style={[styles.metricValue, { color: '#92400e' }]}>
+                        {reportData.lines.reduce((acc: number, l: any) => acc + (l.secQty || (l.qtyInPack > 0 ? Math.round(l.qty / l.qtyInPack) : 0)), 0).toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 

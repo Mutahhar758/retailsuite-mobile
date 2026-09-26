@@ -270,6 +270,7 @@ export const reportService = {
     account: string;
     dateBasis?: 'VoucherDate' | 'ClearingDate';
     layout?: 'A4' | 'Thermal';
+    isWandaLayout?: boolean;
   }): Promise<string> {
     return fetchPdfBase64('/api/reports/customer-bill/pdf', params);
   },
