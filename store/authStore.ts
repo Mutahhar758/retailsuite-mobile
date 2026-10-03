@@ -55,8 +55,14 @@ export const useAuthStore = create<AuthState>()(
       loadProfileAndPermissions: async () => {
         const { token } = get();
         if (!token) return;
-        const headers = { Authorization: `Bearer ${token}` };
         try {
+          const { useAppStore } = await import('./appStore');
+          const currentTenant = useAppStore.getState().currentTenantIdentifier;
+          const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+          if (currentTenant) {
+            headers['X-Tenant-ID'] = currentTenant;
+          }
+
           const [profileRes, permissionsRes] = await Promise.all([
             axios.get('https://retailer-api.bizgripsolutions.com/api/personal/profile', { headers }),
             axios.get('https://retailer-api.bizgripsolutions.com/api/personal/permissions', { headers })
@@ -67,8 +73,12 @@ export const useAuthStore = create<AuthState>()(
             user: profile,
             permissions
           });
-        } catch (error) {
-          console.error('Failed to load profile and permissions:', error);
+        } catch (error: any) {
+          if (error?.response?.status === 401 || error?.response?.status === 404) {
+            console.warn('Session expired or tenant not found on profile load.');
+          } else {
+            console.error('Failed to load profile and permissions:', error?.message || error);
+          }
         }
       }
     }),

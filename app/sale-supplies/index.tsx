@@ -1,14 +1,20 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
 import { saleSupplyService, SaleSupply } from '../../services/saleSupplyService';
+import { useAppStore } from '../../store/appStore';
 
 export default function SaleSuppliesListScreen() {
   const router = useRouter();
+  const { currentTenantIdentifier, licenses } = useAppStore();
+  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const IsWandaFeature = (currentOrg as any)?.hasVariablePackFeature ?? false;
+
   const [supplies, setSupplies] = useState<SaleSupply[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,7 +126,7 @@ export default function SaleSuppliesListScreen() {
       <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.fabContainer}>
         <TouchableOpacity
           style={styles.registerFab}
-          onPress={() => router.push('/sale-supplies/customer-register')}
+          onPress={() => router.push(IsWandaFeature ? '/sale-supplies/wanda-customer-register' : '/sale-supplies/normal-customer-register')}
         >
           <Ionicons name="people-outline" size={20} color={Theme.colors.primary} style={{ marginRight: 6 }} />
           <Text style={styles.registerFabText}>Customer Register</Text>

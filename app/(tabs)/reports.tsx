@@ -5,13 +5,13 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   Alert,
   Modal,
   TextInput,
-  Switch,
+  Switch
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
@@ -176,7 +176,7 @@ export default function ReportsScreen() {
   const { user, permissions } = useAuthStore();
   const { licenses, currentTenantIdentifier } = useAppStore();
   const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
-  const hasVariablePackFeature = currentOrg?.hasVariablePackFeature ?? false;
+  const IsWandaFeature = currentOrg?.hasVariablePackFeature ?? false;
 
   const hasPermission = (permission: string) => {
     if (user?.isOwner) return true;
@@ -184,18 +184,29 @@ export default function ReportsScreen() {
     return permissions.includes(permission);
   };
 
-  const allowedReports = useMemo(
-    () => ALL_REPORTS.filter((r) => hasPermission(r.permission)),
-    [permissions, user]
-  );
+  const allowedReports = useMemo(() => {
+    return ALL_REPORTS
+      .filter((r) => hasPermission(r.permission))
+      .map((r) => {
+        if (r.id === 'customer_bill') {
+          return {
+            ...r,
+            title: 'Customer Bill',
+            shortTitle: 'Customer Bill',
+            tagline: IsWandaFeature ? 'Feed & bags statement' : 'Milk & retail statement',
+          };
+        }
+        return r;
+      });
+  }, [permissions, user, IsWandaFeature]);
 
   // Active Category & Report Selection
   const [selectedCategory, setSelectedCategory] = useState<ReportCategory>('accounts');
   const [selectedReportId, setSelectedReportId] = useState<ReportType>('account_statement');
 
   const currentReport = useMemo(
-    () => ALL_REPORTS.find((r) => r.id === selectedReportId) || ALL_REPORTS[0],
-    [selectedReportId]
+    () => allowedReports.find((r) => r.id === selectedReportId) || ALL_REPORTS[0],
+    [allowedReports, selectedReportId]
   );
 
   // Common Filter State
@@ -434,7 +445,6 @@ export default function ReportsScreen() {
             account: selectedCustomerId,
             dateBasis,
             layout: customerBillLayout,
-            isWandaLayout: hasVariablePackFeature,
           });
           break;
 
@@ -1258,7 +1268,7 @@ export default function ReportsScreen() {
                     <Text style={[styles.metricValue, { color: '#4338ca' }]}>Rs. {reportData.summary.balance.toLocaleString()}</Text>
                   </View>
                 </View>
-                {hasVariablePackFeature && reportData?.lines?.length > 0 && (
+                {IsWandaFeature && reportData?.lines?.length > 0 && (
                   <View style={[styles.metricGrid, { marginTop: 6 }]}>
                     <View style={[styles.metricBox, { backgroundColor: '#fffbeb' }]}>
                       <Text style={styles.metricLabel}>Total Weight (Kg)</Text>

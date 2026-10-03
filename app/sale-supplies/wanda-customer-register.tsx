@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -18,14 +19,13 @@ import { useAppStore } from '../../store/appStore';
 
 interface EditableLine extends SaleSupplyLine {
   isDirty?: boolean;
+  packQty?: number;
+  packing?: number;
 }
 
-export default function CustomerSupplyRegisterScreen() {
+export default function WandaCustomerRegister() {
   const router = useRouter();
   const { currentTenantIdentifier, licenses } = useAppStore();
-  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
-  const hasSecondaryQty = currentOrg?.hasSecondaryQty ?? false;
-  const hasVariablePackFeature = (currentOrg as any)?.hasVariablePackFeature ?? false;
 
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,17 +60,19 @@ export default function CustomerSupplyRegisterScreen() {
   const [editAddLess, setEditAddLess] = useState('');
   const [editSecQty, setEditSecQty] = useState('');
   const [editSecRate, setEditSecRate] = useState('');
+  const [editPackQty, setEditPackQty] = useState('50');
 
   // Quick Add Modal
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [addDate, setAddDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [addItemId, setAddItemId] = useState('');
-  const [addQty, setAddQty] = useState('1');
+  const [addQty, setAddQty] = useState('50');
+  const [addSecQty, setAddSecQty] = useState('1');
   const [addRate, setAddRate] = useState('0');
+  const [addSecRate, setAddSecRate] = useState('0');
   const [addDiscount, setAddDiscount] = useState('0');
   const [addAddLess, setAddAddLess] = useState('0');
-  const [addSecQty, setAddSecQty] = useState('0');
-  const [addSecRate, setAddSecRate] = useState('0');
+  const [addPackQty, setAddPackQty] = useState('50');
   const [addingEntry, setAddingEntry] = useState(false);
 
   useEffect(() => {
@@ -153,7 +155,46 @@ export default function CustomerSupplyRegisterScreen() {
     setEditAddLess(String(line.addLess || 0));
     setEditSecQty(String(line.secQty || 0));
     setEditSecRate(String(line.secRate || 0));
+    const pack = (line.secQty && line.secQty > 0) ? (line.qty / line.secQty) : 50;
+    setEditPackQty(String(Math.round(pack * 100) / 100));
     setEditModalVisible(true);
+  };
+
+  // Dual unit change handlers for Edit Modal
+  const handleEditBagsChange = (val: string) => {
+    setEditSecQty(val);
+    const bags = parseFloat(val) || 0;
+    const pack = parseFloat(editPackQty) || 50;
+    if (bags > 0 && pack > 0) {
+      setEditQty(String(Math.round(bags * pack * 100) / 100));
+    }
+  };
+
+  const handleEditWeightChange = (val: string) => {
+    setEditQty(val);
+    const weight = parseFloat(val) || 0;
+    const pack = parseFloat(editPackQty) || 50;
+    if (weight > 0 && pack > 0) {
+      setEditSecQty(String(Math.round((weight / pack) * 100) / 100));
+    }
+  };
+
+  const handleEditRateKgChange = (val: string) => {
+    setEditRate(val);
+    const rateKg = parseFloat(val) || 0;
+    const pack = parseFloat(editPackQty) || 50;
+    if (rateKg > 0 && pack > 0) {
+      setEditSecRate(String(Math.round(rateKg * pack * 100) / 100));
+    }
+  };
+
+  const handleEditBagRateChange = (val: string) => {
+    setEditSecRate(val);
+    const bagRate = parseFloat(val) || 0;
+    const pack = parseFloat(editPackQty) || 50;
+    if (bagRate > 0 && pack > 0) {
+      setEditRate(String(Math.round((bagRate / pack) * 10000) / 10000));
+    }
   };
 
   // Apply edits to line in state
@@ -167,9 +208,8 @@ export default function CustomerSupplyRegisterScreen() {
     const secQty = parseFloat(editSecQty) || 0;
     const secRate = parseFloat(editSecRate) || 0;
 
-    const amount = hasVariablePackFeature
-      ? Math.round(((qty * (rate - discount)) + addLess) * 100) / 100
-      : Math.round(((qty * (rate - discount)) + addLess + (secQty * secRate)) * 100) / 100;
+    // Dual-unit amount: Weight * (Rate - Discount) + Carriage
+    const amount = Math.round(((qty * (rate - discount)) + addLess) * 100) / 100;
 
     setLines(prev => prev.map(l => (
       l.voucherNo === editLine.voucherNo && l.seq === editLine.seq
@@ -197,14 +237,14 @@ export default function CustomerSupplyRegisterScreen() {
       await saleSupplyService.updateLine(line.voucherNo, line.seq, {
         seq: line.seq,
         customerId: line.customerId,
-        unit: line.unit || undefined,
+        unit: 'Kg',
         qty: line.qty,
         rate: line.rate,
         discount: line.discount,
         addLess: line.addLess,
         secQty: line.secQty,
         secRate: line.secRate,
-        secUnit: line.secUnit || undefined
+        secUnit: 'Bags'
       });
 
       Alert.alert('Success', `Updated record for SP-${line.voucherNo}`);
@@ -235,14 +275,14 @@ export default function CustomerSupplyRegisterScreen() {
         line: {
           seq: l.seq,
           customerId: l.customerId,
-          unit: l.unit || undefined,
+          unit: 'Kg',
           qty: l.qty,
           rate: l.rate,
           discount: l.discount,
           addLess: l.addLess,
           secQty: l.secQty,
           secRate: l.secRate,
-          secUnit: l.secUnit || undefined
+          secUnit: 'Bags'
         }
       }));
 
@@ -285,6 +325,43 @@ export default function CustomerSupplyRegisterScreen() {
     );
   };
 
+  // Dual unit change handlers for Quick Add Modal
+  const handleAddBagsChange = (val: string) => {
+    setAddSecQty(val);
+    const bags = parseFloat(val) || 0;
+    const pack = parseFloat(addPackQty) || 50;
+    if (bags > 0 && pack > 0) {
+      setAddQty(String(Math.round(bags * pack * 100) / 100));
+    }
+  };
+
+  const handleAddWeightChange = (val: string) => {
+    setAddQty(val);
+    const weight = parseFloat(val) || 0;
+    const pack = parseFloat(addPackQty) || 50;
+    if (weight > 0 && pack > 0) {
+      setAddSecQty(String(Math.round((weight / pack) * 100) / 100));
+    }
+  };
+
+  const handleAddRateKgChange = (val: string) => {
+    setAddRate(val);
+    const rateKg = parseFloat(val) || 0;
+    const pack = parseFloat(addPackQty) || 50;
+    if (rateKg > 0 && pack > 0) {
+      setAddSecRate(String(Math.round(rateKg * pack * 100) / 100));
+    }
+  };
+
+  const handleAddBagRateChange = (val: string) => {
+    setAddSecRate(val);
+    const bagRate = parseFloat(val) || 0;
+    const pack = parseFloat(addPackQty) || 50;
+    if (bagRate > 0 && pack > 0) {
+      setAddRate(String(Math.round((bagRate / pack) * 10000) / 10000));
+    }
+  };
+
   // Add new supply record
   const handleAddSupplyRecord = async () => {
     if (!selectedCustomerId || !addItemId) {
@@ -315,27 +392,27 @@ export default function CustomerSupplyRegisterScreen() {
         const updatedLines = details.map(d => ({
           seq: d.seq,
           customerId: d.customerId,
-          unit: d.unit || undefined,
+          unit: d.unit || 'Kg',
           qty: d.qty,
           rate: d.rate,
           discount: d.discount,
           addLess: d.addLess,
           secQty: d.secQty,
           secRate: d.secRate,
-          secUnit: d.secUnit || undefined
+          secUnit: d.secUnit || 'Bags'
         }));
 
         updatedLines.push({
           seq: nextSeq,
           customerId: selectedCustomerId,
-          unit: undefined,
+          unit: 'Kg',
           qty,
           rate,
           discount,
           addLess,
           secQty,
           secRate,
-          secUnit: undefined
+          secUnit: 'Bags'
         });
 
         await saleSupplyService.update(targetVoucher.voucherNo, {
@@ -378,9 +455,10 @@ export default function CustomerSupplyRegisterScreen() {
   const stats = useMemo(() => {
     const totalRecords = lines.length;
     const totalQty = lines.reduce((acc, l) => acc + (Number(l.qty) || 0), 0);
+    const totalBags = lines.reduce((acc, l) => acc + (Number(l.secQty) || 0), 0);
     const totalAmount = lines.reduce((acc, l) => acc + (Number(l.amount) || 0), 0);
     const dirtyCount = lines.filter(l => l.isDirty).length;
-    return { totalRecords, totalQty, totalAmount, dirtyCount };
+    return { totalRecords, totalQty, totalBags, totalAmount, dirtyCount };
   }, [lines]);
 
   const selectedCustomerName = useMemo(() => {
@@ -403,7 +481,7 @@ export default function CustomerSupplyRegisterScreen() {
     );
   }, [items, searchQuery]);
 
-  // Ultra-Compact Line Item Render (High Density, 52px height)
+  // Ultra-Compact Dual-Unit Line Item Render
   const renderRecordItem = ({ item, index }: { item: EditableLine; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 20).duration(250)}>
       <TouchableOpacity
@@ -421,22 +499,14 @@ export default function CustomerSupplyRegisterScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Center Column: Item Title & Metrics Formula */}
+        {/* Center Column: Item Title & Dual Metrics Formula */}
         <View style={styles.compactCenter}>
           <Text style={styles.compactItemTitle} numberOfLines={1}>
             {item.itemTitle || item.itemId}
           </Text>
           <Text style={styles.compactSubText} numberOfLines={1}>
-            {hasVariablePackFeature ? (
-              `Qty: ${item.qty} Kg | Bags: ${item.secQty || 0} | Rate: Rs. ${item.rate}/Kg`
-            ) : (
-              <>
-                Qty: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.qty}</Text>
-                {item.rate > 0 ? ` @ Rs. ${item.rate}` : ''}
-                {item.discount > 0 ? ` (Disc: Rs. ${item.discount})` : ''}
-                {hasSecondaryQty && item.secQty ? ` | Sec: ${item.secQty}` : ''}
-              </>
-            )}
+            Bags: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.secQty || 0}</Text> | {item.qty} Kg @ Rs. {item.rate}/Kg
+            {item.addLess ? ` | Carriage: Rs. ${item.addLess}` : ''}
           </Text>
         </View>
 
@@ -490,7 +560,7 @@ export default function CustomerSupplyRegisterScreen() {
         </View>
       </View>
 
-      {/* Filter Section (Collapsible to maximize list scroll space) */}
+      {/* Filter Section */}
       {!filterCollapsed && (
         <View style={styles.filterCard}>
           <TouchableOpacity
@@ -572,7 +642,7 @@ export default function CustomerSupplyRegisterScreen() {
         </View>
       )}
 
-      {/* Main High-Density Scrollable List */}
+      {/* Main List */}
       <View style={{ flex: 1 }}>
         {loading ? (
           <View style={styles.centered}>
@@ -607,7 +677,7 @@ export default function CustomerSupplyRegisterScreen() {
           <View style={styles.bottomSummaryLeft}>
             <Text style={styles.bottomSummaryCustomer} numberOfLines={1}>{selectedCustomerName}</Text>
             <Text style={styles.bottomSummaryStats}>
-              {stats.totalRecords} Rows | Qty: <Text style={{ fontWeight: '700', color: '#93c5fd' }}>{stats.totalQty.toFixed(2)}</Text>
+              {stats.totalRecords} Rows | Bags: <Text style={{ fontWeight: '700', color: '#fef08a' }}>{stats.totalBags}</Text> | Wt: <Text style={{ fontWeight: '700', color: '#93c5fd' }}>{stats.totalQty.toFixed(2)} Kg</Text>
             </Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -649,7 +719,7 @@ export default function CustomerSupplyRegisterScreen() {
 
           <TextInput
             style={styles.searchInput}
-            placeholder="Search customer name or code..."
+            placeholder="Search by name or code..."
             placeholderTextColor="#94a3b8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -657,28 +727,28 @@ export default function CustomerSupplyRegisterScreen() {
 
           <FlatList
             data={filteredCustomers}
-            keyExtractor={(item) => item.account}
+            keyExtractor={item => item.account}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.modalOption}
+                style={[styles.modalOption, item.account === selectedCustomerId && styles.selectedOption]}
                 onPress={() => {
                   setSelectedCustomerId(item.account);
                   setCustomerModalVisible(false);
                 }}
               >
                 <Text style={styles.optionTitle}>{item.title}</Text>
-                <Text style={styles.optionSub}>Account: {item.account}</Text>
+                <Text style={styles.optionSub}>{item.account}</Text>
               </TouchableOpacity>
             )}
           />
         </SafeAreaView>
       </Modal>
 
-      {/* Item Filter Modal */}
+      {/* Item Selector Modal */}
       <Modal visible={itemModalVisible} animationType="slide" transparent>
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Filter Item</Text>
+            <Text style={styles.modalTitle}>Select Item</Text>
             <TouchableOpacity onPress={() => setItemModalVisible(false)}>
               <Ionicons name="close" size={24} color="#1e293b" />
             </TouchableOpacity>
@@ -686,42 +756,37 @@ export default function CustomerSupplyRegisterScreen() {
 
           <TextInput
             style={styles.searchInput}
-            placeholder="Search item title or code..."
+            placeholder="Search item..."
             placeholderTextColor="#94a3b8"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
 
-          <TouchableOpacity
-            style={[styles.modalOption, !selectedItemId && styles.selectedOption]}
-            onPress={() => {
-              setSelectedItemId(null);
-              setItemModalVisible(false);
-            }}
-          >
-            <Text style={styles.optionTitle}>All Items</Text>
-          </TouchableOpacity>
-
           <FlatList
             data={filteredItems}
-            keyExtractor={(item) => item.id}
+            keyExtractor={item => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[styles.modalOption, selectedItemId === item.id && styles.selectedOption]}
+                style={styles.modalOption}
                 onPress={() => {
-                  setSelectedItemId(item.id);
+                  setAddItemId(item.id);
+                  const pack = item.qtyInPack || 50;
+                  setAddPackQty(String(pack));
+                  const rateKg = item.priRate || 0;
+                  setAddRate(String(rateKg));
+                  setAddSecRate(String(Math.round(rateKg * pack * 100) / 100));
                   setItemModalVisible(false);
                 }}
               >
                 <Text style={styles.optionTitle}>{item.title}</Text>
-                <Text style={styles.optionSub}>Code: {item.id}</Text>
+                <Text style={styles.optionSub}>Rate: Rs. {item.priRate || 0}/Kg | Pack: {item.qtyInPack || 50} Kg</Text>
               </TouchableOpacity>
             )}
           />
         </SafeAreaView>
       </Modal>
 
-      {/* Line Edit Modal */}
+      {/* Dual-Unit Line Edit Modal */}
       <Modal visible={editModalVisible} animationType="fade" transparent>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
           <View style={styles.editCardModal}>
@@ -733,57 +798,68 @@ export default function CustomerSupplyRegisterScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 400 }}>
-              <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Qty (Kg)' : 'Quantity'}</Text>
-              <TextInput
-                style={styles.editInput}
-                keyboardType="numeric"
-                value={editQty}
-                onChangeText={setEditQty}
-              />
-
-              <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Rate (/Kg)' : 'Rate'}</Text>
-              <TextInput
-                style={styles.editInput}
-                keyboardType="numeric"
-                value={editRate}
-                onChangeText={setEditRate}
-              />
-
-              <Text style={styles.inputLabel}>Discount</Text>
-              <TextInput
-                style={styles.editInput}
-                keyboardType="numeric"
-                value={editDiscount}
-                onChangeText={setEditDiscount}
-              />
-
-              <Text style={styles.inputLabel}>Add / Less Amount</Text>
-              <TextInput
-                style={styles.editInput}
-                keyboardType="numeric"
-                value={editAddLess}
-                onChangeText={setEditAddLess}
-              />
-
-              {(hasSecondaryQty || hasVariablePackFeature) && (
-                <>
-                  <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Sec Qty (Bags)' : 'Secondary Qty'}</Text>
+              <View style={styles.inputPairRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Bags</Text>
                   <TextInput
                     style={styles.editInput}
                     keyboardType="numeric"
                     value={editSecQty}
-                    onChangeText={setEditSecQty}
+                    onChangeText={handleEditBagsChange}
                   />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Weight (Kg)</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    keyboardType="numeric"
+                    value={editQty}
+                    onChangeText={handleEditWeightChange}
+                  />
+                </View>
+              </View>
 
-                  <Text style={styles.inputLabel}>{hasVariablePackFeature ? 'Bag Rate' : 'Secondary Rate'}</Text>
+              <View style={styles.inputPairRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Bag Rate</Text>
                   <TextInput
                     style={styles.editInput}
                     keyboardType="numeric"
                     value={editSecRate}
-                    onChangeText={setEditSecRate}
+                    onChangeText={handleEditBagRateChange}
                   />
-                </>
-              )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Rate (/Kg)</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    keyboardType="numeric"
+                    value={editRate}
+                    onChangeText={handleEditRateKgChange}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputPairRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Carriage</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    keyboardType="numeric"
+                    value={editAddLess}
+                    onChangeText={setEditAddLess}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Discount</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    keyboardType="numeric"
+                    value={editDiscount}
+                    onChangeText={setEditDiscount}
+                  />
+                </View>
+              </View>
             </ScrollView>
 
             <TouchableOpacity
@@ -800,7 +876,7 @@ export default function CustomerSupplyRegisterScreen() {
       <Modal visible={addModalVisible} animationType="slide" transparent>
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Supply Record for {selectedCustomerName}</Text>
+            <Text style={styles.modalTitle}>Add Supply Record</Text>
             <TouchableOpacity onPress={() => setAddModalVisible(false)}>
               <Ionicons name="close" size={24} color="#1e293b" />
             </TouchableOpacity>
@@ -827,21 +903,68 @@ export default function CustomerSupplyRegisterScreen() {
               </Text>
             </TouchableOpacity>
 
-            <Text style={styles.inputLabel}>Quantity</Text>
-            <TextInput
-              style={styles.editInput}
-              keyboardType="numeric"
-              value={addQty}
-              onChangeText={setAddQty}
-            />
+            <View style={styles.inputPairRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Bags</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addSecQty}
+                  onChangeText={handleAddBagsChange}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Weight (Kg)</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addQty}
+                  onChangeText={handleAddWeightChange}
+                />
+              </View>
+            </View>
 
-            <Text style={styles.inputLabel}>Rate</Text>
-            <TextInput
-              style={styles.editInput}
-              keyboardType="numeric"
-              value={addRate}
-              onChangeText={setAddRate}
-            />
+            <View style={styles.inputPairRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Bag Rate</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addSecRate}
+                  onChangeText={handleAddBagRateChange}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Rate (/Kg)</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addRate}
+                  onChangeText={handleAddRateKgChange}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputPairRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Carriage</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addAddLess}
+                  onChangeText={setAddAddLess}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Discount</Text>
+                <TextInput
+                  style={styles.editInput}
+                  keyboardType="numeric"
+                  value={addDiscount}
+                  onChangeText={setAddDiscount}
+                />
+              </View>
+            </View>
 
             <TouchableOpacity
               style={[styles.applyEditBtn, { marginTop: 24 }]}
@@ -940,8 +1063,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-
-  /* Compact Row Styling (High density, ~52px height) */
   listContainer: { paddingHorizontal: 10, paddingVertical: 6, paddingBottom: 80 },
   compactRow: {
     flexDirection: 'row',
@@ -972,8 +1093,6 @@ const styles = StyleSheet.create({
   compactActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   compactSaveBtn: { backgroundColor: '#16a34a', borderRadius: 4, padding: 2 },
   compactDeleteBtn: { padding: 2 },
-
-  /* Bottom Summary Footer Bar */
   bottomSummaryBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1003,8 +1122,6 @@ const styles = StyleSheet.create({
   bottomSummaryRight: { alignItems: 'flex-end' },
   bottomSummaryLabel: { fontSize: 10, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5 },
   bottomSummaryVal: { fontSize: 20, fontWeight: '800', color: '#4ade80' },
-
-  /* Modal Styles */
   modalContainer: { flex: 1, backgroundColor: '#fff' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
@@ -1015,6 +1132,7 @@ const styles = StyleSheet.create({
   optionSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
   editCardModal: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  inputPairRow: { flexDirection: 'row', gap: 12 },
   inputLabel: { fontSize: 13, fontWeight: '600', color: '#475569', marginTop: 12, marginBottom: 4 },
   editInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', padding: 10, borderRadius: 8, fontSize: 15, color: '#0f172a' },
   applyEditBtn: { backgroundColor: '#16a34a', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 16 },

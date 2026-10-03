@@ -29,7 +29,14 @@ export default function SaleSuppliesLayout() {
         }} 
       />
       <Stack.Screen 
-        name="customer-register" 
+        name="normal-customer-register" 
+        options={{
+          title: 'Customer Register',
+          presentation: 'card',
+        }} 
+      />
+      <Stack.Screen 
+        name="wanda-customer-register" 
         options={{
           title: 'Customer Register',
           presentation: 'card',

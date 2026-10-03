@@ -26,7 +26,10 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
 
   // Node/Fallback buffer conversion if btoa is unavailable
-  return Buffer.from(binary, 'binary').toString('base64');
+  if (typeof (globalThis as any).Buffer !== 'undefined') {
+    return (globalThis as any).Buffer.from(binary, 'binary').toString('base64');
+  }
+  return '';
 }
 
 /**
