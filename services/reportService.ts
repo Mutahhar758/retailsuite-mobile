@@ -274,7 +274,7 @@ export const reportService = {
     return fetchPdfBase64('/api/reports/customer-bill/pdf', params);
   },
 
-  // 10. Purchase vs Supply Comparison (Milk Comparison)
+  // 10. Purchase vs Supply Comparison
   async getPurchaseSupplyComparison(params: { fromDate: string; toDate: string; itemId?: string }) {
     const response = await api.get('/api/reports/purchase-supply-comparison', { params });
     return response.data.body as PurchaseSupplyComparisonResponse;

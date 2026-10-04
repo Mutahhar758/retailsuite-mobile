@@ -162,13 +162,13 @@ const ALL_REPORTS: ReportMeta[] = [
   },
   {
     id: 'milk_comparison',
-    title: 'Milk Purchase vs Supply',
-    shortTitle: 'Milk Comparison',
-    tagline: 'Intake vs dispatch',
+    title: 'Purchase vs Supply',
+    shortTitle: 'Purchase vs Supply',
+    tagline: 'Purchase vs dispatch comparison',
     category: 'commercial',
-    icon: 'water-outline',
+    icon: 'swap-horizontal-outline',
     color: '#0ea5e9',
-    permission: 'Permissions.MilkComparison.View',
+    permission: 'Permissions.PurchaseSupplyComparison.View',
   },
 ];
 
@@ -181,7 +181,9 @@ export default function ReportsScreen() {
   const hasPermission = (permission: string) => {
     if (user?.isOwner) return true;
     if (permissions.includes('Permissions.Reports.View')) return true;
-    return permissions.includes(permission);
+    if (permissions.includes(permission)) return true;
+    if (permission === 'Permissions.PurchaseSupplyComparison.View' && permissions.includes('Permissions.MilkComparison.View')) return true;
+    return false;
   };
 
   const allowedReports = useMemo(() => {
@@ -193,7 +195,7 @@ export default function ReportsScreen() {
             ...r,
             title: 'Customer Bill',
             shortTitle: 'Customer Bill',
-            tagline: IsWandaFeature ? 'Feed & bags statement' : 'Milk & retail statement',
+            tagline: IsWandaFeature ? 'Feed & bags statement' : 'Customer sales statement',
           };
         }
         return r;
@@ -282,13 +284,7 @@ export default function ReportsScreen() {
         if (customersRes && customersRes.length > 0) setSelectedCustomerId(customersRes[0].account);
 
         if (itemsRes && itemsRes.length > 0) {
-          const milkItem = itemsRes.find(
-            (i) =>
-              i.title.toLowerCase().includes('milk') ||
-              i.title.toLowerCase().includes('dodh') ||
-              i.title.includes('دودھ')
-          );
-          setSelectedItemId(milkItem ? milkItem.id : itemsRes[0].id);
+          setSelectedItemId(itemsRes[0].id);
         }
       } catch (err) {
         console.error('Failed to load report lookup lists:', err);
@@ -460,7 +456,7 @@ export default function ReportsScreen() {
           break;
 
         case 'milk_comparison':
-          filename = `MilkComparison_${fromStr}_${toStr}.pdf`;
+          filename = `PurchaseSupplyComparison_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getPurchaseSupplyComparisonPdf({
             fromDate: fromStr,
             toDate: toStr,
@@ -953,11 +949,11 @@ export default function ReportsScreen() {
             </View>
           )}
 
-          {/* Item Ledger / Milk Comparison Item Picker */}
+          {/* Item Ledger / Purchase vs Supply Item Picker */}
           {(selectedReportId === 'item_ledger' || selectedReportId === 'milk_comparison') && (
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>
-                {selectedReportId === 'item_ledger' ? 'Product Item' : 'Milk Item'}
+                {selectedReportId === 'item_ledger' ? 'Product Item' : 'Select Item'}
               </Text>
               <TouchableOpacity
                 style={styles.selectorButton}
