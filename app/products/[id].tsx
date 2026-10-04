@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { inventoryService, InventoryItemUpsertRequest, Unit } from '../../services/inventoryService';
 import { itemCategoryService, ItemCategoryDto } from '../../services/itemCategoryService';
 
@@ -215,7 +216,8 @@ export default function ProductFormScreen() {
         Alert.alert('Success', 'Product created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save product.');
+      console.error('Failed to save product:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save product.'));
     } finally {
       setSaving(false);
     }
@@ -236,7 +238,8 @@ export default function ProductFormScreen() {
               await inventoryService.delete(id!);
               Alert.alert('Success', 'Product deleted successfully.', [{ text: 'OK', onPress: () => router.back() }]);
             } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.message || 'Failed to delete product.');
+              console.error('Failed to delete product:', error?.response?.data || error);
+              Alert.alert('Error', extractErrorMessage(error, 'Failed to delete product.'));
             } finally {
               setSaving(false);
             }

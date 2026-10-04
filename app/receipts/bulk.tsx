@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { receiptService } from '../../services/receiptService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
@@ -269,8 +270,8 @@ export default function BulkReceiptScreen() {
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error: any) {
-      console.error(error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save bulk receipt voucher.');
+      console.error('Failed to save bulk receipt:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save bulk receipt voucher.'));
     } finally {
       setSaving(false);
     }

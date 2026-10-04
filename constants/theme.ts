@@ -31,6 +31,13 @@ export const Theme = {
     xl: 24,
     round: 9999,
   },
+  borderRadius: {
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    round: 9999,
+  },
   typography: {
     h1: { fontSize: 32, fontWeight: '700' as const },
     h2: { fontSize: 24, fontWeight: '600' as const },
@@ -39,6 +46,15 @@ export const Theme = {
     bodyMedium: { fontSize: 16, fontWeight: '500' as const },
     caption: { fontSize: 14, fontWeight: '400' as const },
     small: { fontSize: 12, fontWeight: '400' as const },
+    sizes: {
+      h1: 32,
+      h2: 24,
+      h3: 20,
+      body: 16,
+      bodyMedium: 16,
+      caption: 14,
+      small: 12,
+    },
   },
   shadows: {
     sm: {

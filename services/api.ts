@@ -112,4 +112,34 @@ api.interceptors.response.use(
   }
 );
 
+export function extractErrorMessage(error: any, fallback: string = 'An unexpected error occurred.'): string {
+  if (!error) return fallback;
+  const metadata = error.response?.data?.metadata;
+  if (metadata?.message) {
+    let msg = metadata.message;
+    if (metadata.validationErrors) {
+      if (Array.isArray(metadata.validationErrors) && metadata.validationErrors.length > 0) {
+        const errorList = metadata.validationErrors.map((err: any) => {
+          if (typeof err === 'string') return err;
+          if (typeof err === 'object' && err !== null) {
+            return Object.entries(err)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(', ');
+          }
+          return String(err);
+        });
+        msg += '\n' + errorList.join('\n');
+      } else if (typeof metadata.validationErrors === 'object') {
+        const errorList = Object.entries(metadata.validationErrors).map(([k, v]) => {
+          if (Array.isArray(v)) return `${k}: ${v.join(', ')}`;
+          return `${k}: ${v}`;
+        });
+        msg += '\n' + errorList.join('\n');
+      }
+    }
+    return msg;
+  }
+  return error.response?.data?.message || error.message || fallback;
+}
+
 export default api;

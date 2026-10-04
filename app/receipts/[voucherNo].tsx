@@ -19,6 +19,7 @@ import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { receiptService, ReceiptLineRequest } from '../../services/receiptService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
@@ -240,7 +241,8 @@ export default function ReceiptFormScreen() {
         Alert.alert('Success', 'Receipt created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save receipt.');
+      console.error('Failed to save receipt:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save receipt.'));
     } finally {
       setSaving(false);
     }

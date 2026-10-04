@@ -20,6 +20,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { customerService, CustomerCreateRequest, CustomerUpdateRequest } from '../../services/customerService';
 
 export default function CustomerFormScreen() {
@@ -161,7 +162,8 @@ export default function CustomerFormScreen() {
         Alert.alert('Success', 'Customer created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save customer.');
+      console.error('Failed to save customer:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save customer.'));
     } finally {
       setSaving(false);
     }

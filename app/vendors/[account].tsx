@@ -20,6 +20,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { vendorService, VendorCreateRequest, VendorUpdateRequest } from '../../services/vendorService';
 
 export default function VendorFormScreen() {
@@ -163,7 +164,8 @@ export default function VendorFormScreen() {
         Alert.alert('Success', 'Vendor created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save vendor.');
+      console.error('Failed to save vendor:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save vendor.'));
     } finally {
       setSaving(false);
     }

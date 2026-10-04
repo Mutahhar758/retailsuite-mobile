@@ -19,6 +19,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
+import { extractErrorMessage } from '../../services/api';
 import { paymentService, PaymentLineRequest } from '../../services/paymentService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
@@ -239,7 +240,8 @@ export default function PaymentFormScreen() {
         Alert.alert('Success', 'Payment created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to save payment.');
+      console.error('Failed to save payment:', error?.response?.data || error);
+      Alert.alert('Error', extractErrorMessage(error, 'Failed to save payment.'));
     } finally {
       setSaving(false);
     }
