@@ -116,6 +116,7 @@ export function NormalSaleScreen() {
           qty: d.qty,
           rate: d.rate,
           discount: d.discount || 0,
+          carriage: d.carriage || 0,
           secQty: d.secQty || 0,
           secRate: d.secRate || 0,
           secUnit: d.secUnit || ''
@@ -246,7 +247,7 @@ export function NormalSaleScreen() {
   const netAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
       const perUnitRate = (l.rate || 0) - (l.discount || 0);
-      return sum + ((l.qty || 0) * perUnitRate + ((l.secQty || 0) * (l.secRate || 0)));
+      return sum + ((l.qty || 0) * perUnitRate + (l.carriage || 0) + ((l.secQty || 0) * (l.secRate || 0)));
     }, 0);
   }, [lines]);
 
@@ -301,6 +302,7 @@ export function NormalSaleScreen() {
         qty: Number(l.qty) || 0,
         rate: Number(l.rate) || 0,
         discount: Number(l.discount) || 0,
+        carriage: Number(l.carriage) || 0,
         secQty: Number(l.secQty) || 0,
         secRate: Number(l.secRate) || 0,
         secUnit: (Number(l.secQty) > 0 && l.secUnit) ? l.secUnit : undefined

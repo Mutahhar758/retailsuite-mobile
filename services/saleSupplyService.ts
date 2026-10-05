@@ -29,6 +29,7 @@ export interface SaleSupplyLine {
   rate: number;
   discount: number;
   addLess: number;
+  carriage?: number;
   amount: number;
   secQty?: number;
   secRate?: number;
@@ -49,6 +50,7 @@ export interface SaleSupplyLineRequest {
   rate: number;
   discount: number;
   addLess: number;
+  carriage?: number;
   secQty?: number;
   secRate?: number;
   secUnit?: string;

@@ -26,6 +26,7 @@ export interface SaleLineDto {
   qty: number;
   rate: number;
   discount: number;
+  carriage?: number;
   amount: number;
   secUnit?: string;
   secQty?: number;
@@ -47,6 +48,7 @@ export interface SaleLineRequest {
   qty: number;
   rate: number;
   discount: number;
+  carriage?: number;
   secUnit?: string;
   secQty?: number;
   secRate?: number;

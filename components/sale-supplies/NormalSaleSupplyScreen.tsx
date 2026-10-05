@@ -117,6 +117,7 @@ export function NormalSaleSupplyScreen() {
           qty: d.qty,
           rate: d.rate,
           discount: d.discount,
+          carriage: d.carriage,
           addLess: d.addLess,
           secQty: d.secQty,
           secRate: d.secRate,
@@ -144,7 +145,7 @@ export function NormalSaleSupplyScreen() {
         customerService.getSupplyItems({ itemId })
       ]);
 
-      const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; addLess?: number; discount?: number }>();
+      const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; carriage?: number; addLess?: number; discount?: number }>();
       if (customSupplyItems && Array.isArray(customSupplyItems)) {
         customSupplyItems.forEach(ci => {
           if (ci.customerAccountId) {
@@ -152,6 +153,7 @@ export function NormalSaleSupplyScreen() {
               qty: ci.qty,
               secQty: ci.secQty,
               rate: ci.rate,
+              carriage: ci.carriage,
               addLess: ci.addLess,
               discount: ci.discount
             });
@@ -171,6 +173,7 @@ export function NormalSaleSupplyScreen() {
           const secQty = setting ? (setting.secQty || 0) : 0;
           const lineRate = setting?.rate != null ? setting.rate : baseRate;
           const lineDiscount = setting?.discount != null ? setting.discount : 0;
+          const lineCarriage = setting?.carriage != null ? setting.carriage : 0;
           const lineAddLess = setting?.addLess != null ? setting.addLess : 0;
 
           return {
@@ -180,6 +183,7 @@ export function NormalSaleSupplyScreen() {
             qty,
             rate: lineRate,
             discount: lineDiscount,
+            carriage: lineCarriage,
             addLess: lineAddLess,
             secQty,
             secRate: baseSecRate,
@@ -206,7 +210,7 @@ export function NormalSaleSupplyScreen() {
 
     try {
       const customSupplyItems = await customerService.getSupplyItems({ itemId: item.id });
-      const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; addLess?: number; discount?: number }>();
+      const customerQtyMap = new Map<string, { qty: number; secQty?: number; rate?: number; carriage?: number; addLess?: number; discount?: number }>();
       if (customSupplyItems && Array.isArray(customSupplyItems)) {
         customSupplyItems.forEach(ci => {
           if (ci.customerAccountId) {
@@ -214,6 +218,7 @@ export function NormalSaleSupplyScreen() {
               qty: ci.qty,
               secQty: ci.secQty,
               rate: ci.rate,
+              carriage: ci.carriage,
               addLess: ci.addLess,
               discount: ci.discount
             });
@@ -240,6 +245,7 @@ export function NormalSaleSupplyScreen() {
           secQty: setting ? (setting.secQty || 0) : (line.secQty || 0),
           rate: setting?.rate != null ? setting.rate : defaultRate,
           discount: setting?.discount != null ? setting.discount : (line.discount || 0),
+          carriage: setting?.carriage != null ? setting.carriage : (line.carriage || 0),
           addLess: setting?.addLess != null ? setting.addLess : (line.addLess || 0),
           secRate,
           secUnit: item.secondaryUnit || ''
@@ -380,6 +386,7 @@ export function NormalSaleSupplyScreen() {
           qty: Number(l.qty) || 0,
           rate: Number(l.rate) || 0,
           discount: Number(l.discount) || 0,
+          carriage: Number(l.carriage) || 0,
           addLess: Number(l.addLess) || 0,
           secUnit: l.secUnit || undefined,
           secQty: Number(l.secQty) || 0,
@@ -454,13 +461,14 @@ export function NormalSaleSupplyScreen() {
       const r = Number(l.rate) || 0;
       const sr = Number(l.secRate) || 0;
       const d = Number(l.discount) || 0;
+      const c = Number((l as any).carriage) || 0;
       const al = Number(l.addLess) || 0;
 
       totalQty += q;
       totalSecQty += sq;
       totalDiscount += (d * q);
       totalAddLess += al;
-      const amt = (q * (r - d)) + al + (sq * sr);
+      const amt = (q * (r - d)) + c + al + (sq * sr);
       totalAmount += amt;
 
       if (l.customerId) customerCount += 1;
@@ -670,7 +678,7 @@ export function NormalSaleSupplyScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = (line.qty * (line.rate - line.discount)) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
+            const lineAmount = (line.qty * (line.rate - line.discount)) + (line.carriage || 0) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
