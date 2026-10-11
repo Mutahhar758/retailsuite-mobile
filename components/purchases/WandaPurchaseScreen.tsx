@@ -142,11 +142,11 @@ export function WandaPurchaseScreen() {
       let packQty = 0;
       let packing = 0;
       if (selectedItem) {
-        defaultRate = selectedItem.priRate || 0;
         const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
         packQty = pSize;
         packing = pSize;
         secRate = selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1));
+        defaultRate = (pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0);
       }
       setCurrentLine(prev => ({
         ...prev,
@@ -202,20 +202,28 @@ export function WandaPurchaseScreen() {
         packing = numVal;
         if (packing > 0) {
           if (bagRate > 0) {
-            kgRate = round(bagRate / packing, 4);
+            kgRate = round(bagRate / packing, 8);
           } else if (kgRate > 0) {
-            bagRate = round(kgRate * packing, 4);
+            bagRate = round(kgRate * packing, 2);
           }
         }
       } else if (field === 'rate') {
-        kgRate = numVal;
-        if (packing > 0) {
-          bagRate = round(kgRate * packing, 4);
+        if (updated.rate && round(numVal, 2) === round(updated.rate, 2)) {
+          kgRate = updated.rate;
+        } else {
+          kgRate = numVal;
+          if (packing > 0) {
+            bagRate = round(kgRate * packing, 2);
+          }
         }
       } else if (field === 'secRate') {
-        bagRate = numVal;
-        if (packing > 0) {
-          kgRate = round(bagRate / packing, 4);
+        if (updated.secRate && round(numVal, 2) === round(updated.secRate, 2)) {
+          bagRate = updated.secRate;
+        } else {
+          bagRate = numVal;
+          if (packing > 0) {
+            kgRate = round(bagRate / packing, 8);
+          }
         }
       } else if (field === 'addLess') {
         updated.addLess = numVal;
@@ -225,8 +233,8 @@ export function WandaPurchaseScreen() {
       updated.secQty = round(bagQty, 2);
       updated.packQty = round(packQty, 2);
       updated.packing = round(packing, 2);
-      updated.rate = round(kgRate, 4);
-      updated.secRate = round(bagRate, 4);
+      updated.rate = round(kgRate, 8);
+      updated.secRate = round(bagRate, 2);
       return updated;
     });
   };
@@ -377,7 +385,7 @@ export function WandaPurchaseScreen() {
 
   const totalAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
-      return sum + (l.qty * l.rate + l.addLess);
+      return sum + round((l.qty || 0) * (l.rate || 0) + (l.addLess || 0), 2);
     }, 0);
   }, [lines]);
 
@@ -540,14 +548,14 @@ export function WandaPurchaseScreen() {
             ) : (
               lines.map((line) => {
                 const itemTitle = items.find(i => i.id === line.itemId)?.title || line.itemId;
-                const lineTotal = line.qty * line.rate + line.addLess;
+                const lineTotal = round(line.qty * line.rate + line.addLess, 2);
                 return (
                   <View key={line.seq} style={styles.lineCard}>
                     <View style={styles.lineInfo}>
                       <Text style={styles.lineAccount} numberOfLines={1}>{itemTitle}</Text>
-                      <Text style={styles.lineAmount}>Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+                      <Text style={styles.lineAmount}>Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                       <Text style={styles.lineDetail}>
-                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {line.rate}/Kg | Bag Rate: Rs. {line.secRate || 0}
+                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {Number(line.rate || 0).toFixed(2)}/Kg | Bag Rate: Rs. {Number(line.secRate || 0).toFixed(2)}
                         {(line as any).packQty ? ` | Pack: ${(line as any).packQty}` : ''}
                         {line.addLess !== 0 ? ` | Add/Less: Rs. ${line.addLess.toLocaleString()}` : ''}
                       </Text>
@@ -740,7 +748,7 @@ export function WandaPurchaseScreen() {
                     <TextInput
                       style={styles.textInput}
                       keyboardType="numeric"
-                      value={currentLine.rate !== undefined ? String(currentLine.rate) : '0'}
+                      value={currentLine.rate !== undefined ? String(round(currentLine.rate, 2)) : '0'}
                       onChangeText={(val) => updateCurrentLineField('rate', val)}
                     />
                   </View>
@@ -749,7 +757,7 @@ export function WandaPurchaseScreen() {
                     <TextInput
                       style={styles.textInput}
                       keyboardType="numeric"
-                      value={currentLine.secRate !== undefined ? String(currentLine.secRate) : '0'}
+                      value={currentLine.secRate !== undefined ? String(round(currentLine.secRate, 2)) : '0'}
                       onChangeText={(val) => updateCurrentLineField('secRate', val)}
                     />
                   </View>

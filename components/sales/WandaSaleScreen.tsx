@@ -145,11 +145,11 @@ export function WandaSaleScreen() {
       let packQty = 0;
       let packing = 0;
       if (selectedItem) {
-        defaultRate = selectedItem.priRate || 0;
         const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
         packQty = pSize;
         packing = pSize;
         secRate = selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1));
+        defaultRate = (pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0);
       }
       setCurrentLine(prev => ({
         ...prev,
@@ -205,20 +205,28 @@ export function WandaSaleScreen() {
         packing = numVal;
         if (packing > 0) {
           if (bagRate > 0) {
-            kgRate = round(bagRate / packing, 4);
+            kgRate = round(bagRate / packing, 8);
           } else if (kgRate > 0) {
-            bagRate = round(kgRate * packing, 4);
+            bagRate = round(kgRate * packing, 2);
           }
         }
       } else if (field === 'rate') {
-        kgRate = numVal;
-        if (packing > 0) {
-          bagRate = round(kgRate * packing, 4);
+        if (updated.rate && round(numVal, 2) === round(updated.rate, 2)) {
+          kgRate = updated.rate;
+        } else {
+          kgRate = numVal;
+          if (packing > 0) {
+            bagRate = round(kgRate * packing, 2);
+          }
         }
       } else if (field === 'secRate') {
-        bagRate = numVal;
-        if (packing > 0) {
-          kgRate = round(bagRate / packing, 4);
+        if (updated.secRate && round(numVal, 2) === round(updated.secRate, 2)) {
+          bagRate = updated.secRate;
+        } else {
+          bagRate = numVal;
+          if (packing > 0) {
+            kgRate = round(bagRate / packing, 8);
+          }
         }
       } else if (field === 'discount') {
         updated.discount = numVal;
@@ -228,8 +236,8 @@ export function WandaSaleScreen() {
       updated.secQty = round(bagQty, 2);
       updated.packQty = round(packQty, 2);
       updated.packing = round(packing, 2);
-      updated.rate = round(kgRate, 4);
-      updated.secRate = round(bagRate, 4);
+      updated.rate = round(kgRate, 8);
+      updated.secRate = round(bagRate, 2);
       return updated;
     });
   };
@@ -586,11 +594,11 @@ export function WandaSaleScreen() {
                         {itemObj?.title || `Item #${line.itemId}`}
                       </Text>
                       <Text style={styles.lineDetail}>
-                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {line.rate}/Kg
+                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {Number(line.rate || 0).toFixed(2)}/Kg
                         {line.discount > 0 ? ` (Disc: -Rs. ${line.discount}/Kg)` : ''}
                       </Text>
                       <Text style={styles.lineDetailSub}>
-                        Bag Rate: Rs. {line.secRate || 0} | Pack: {line.packQty || 0} | Packing: {line.packing || 0}
+                        Bag Rate: Rs. {Number(line.secRate || 0).toFixed(2)} | Pack: {line.packQty || 0} | Packing: {line.packing || 0}
                       </Text>
                       <Text style={styles.lineAmount}>
                         Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -825,7 +833,7 @@ export function WandaSaleScreen() {
                     <TextInput
                       style={styles.textInput}
                       keyboardType="numeric"
-                      value={currentLine.rate !== undefined ? String(currentLine.rate) : '0'}
+                      value={currentLine.rate !== undefined ? String(round(currentLine.rate, 2)) : '0'}
                       onChangeText={(val) => updateCurrentLineField('rate', val)}
                     />
                   </View>
@@ -834,7 +842,7 @@ export function WandaSaleScreen() {
                     <TextInput
                       style={styles.textInput}
                       keyboardType="numeric"
-                      value={currentLine.secRate !== undefined ? String(currentLine.secRate) : '0'}
+                      value={currentLine.secRate !== undefined ? String(round(currentLine.secRate, 2)) : '0'}
                       onChangeText={(val) => updateCurrentLineField('secRate', val)}
                     />
                   </View>

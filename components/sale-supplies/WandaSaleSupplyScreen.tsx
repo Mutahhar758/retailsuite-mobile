@@ -163,13 +163,14 @@ export function WandaSaleSupplyScreen() {
       const baseRate = isSec ? (selectedItem?.secRate || 0) : (selectedItem?.priRate || 0);
       const pSize = Number(selectedItem?.qtyInPack || (selectedItem as any)?.QtyInPack || (selectedItem as any)?.qty_in_pack || 0);
       const baseSecRate = selectedItem?.secRate || (baseRate * (pSize > 0 ? pSize : 1));
+      const calculatedRate = (pSize > 0 && baseSecRate > 0) ? round(baseSecRate / pSize, 8) : baseRate;
 
       if (orderDetail && orderDetail.details) {
         const newLines: SaleSupplyLineRequest[] = orderDetail.details.map((d, index) => {
           const setting = customerQtyMap.get(d.customerId);
           const qty = setting ? setting.qty : 1;
           const secQty = setting ? (setting.secQty || 0) : 0;
-          const lineRate = setting?.rate != null ? setting.rate : baseRate;
+          const lineRate = setting?.rate != null ? setting.rate : calculatedRate;
           const lineDiscount = setting?.discount != null ? setting.discount : 0;
           const lineCarriage = setting?.carriage != null ? setting.carriage : 0;
           const lineAddLess = setting?.addLess != null ? setting.addLess : 0;
@@ -205,9 +206,9 @@ export function WandaSaleSupplyScreen() {
   const handleItemSelect = async (item: Item) => {
     setItemId(item.id);
     const isSec = item.defaultUnit === item.secondaryUnit;
-    const defaultRate = isSec ? (item.secRate || 0) : (item.priRate || 0);
     const pSize = Number(item.qtyInPack || (item as any).QtyInPack || (item as any).qty_in_pack || 0);
-    const secRate = item.secRate || (defaultRate * (pSize > 0 ? pSize : 1));
+    const secRate = item.secRate || ((item.priRate || 0) * (pSize > 0 ? pSize : 1));
+    const defaultRate = (pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (isSec ? (item.secRate || 0) : (item.priRate || 0));
 
     try {
       const customSupplyItems = await customerService.getSupplyItems({ itemId: item.id });
@@ -283,12 +284,12 @@ export function WandaSaleSupplyScreen() {
     
     if (selectedItem) {
       defaultUnit = selectedItem.defaultUnit || selectedItem.primaryUnit || '';
-      defaultRate = selectedItem.priRate || 0;
       secUnit = selectedItem.secondaryUnit || '';
       const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
       packQty = pSize;
       packing = pSize;
-      secRate = selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1));
+      secRate = selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1));
+      defaultRate = (pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0);
     }
     
     setLines([...lines, { seq: nextSeq, customerId: '', unit: defaultUnit, qty: 1, rate: defaultRate, discount: 0, addLess: 0, secQty: 0, secRate, secUnit, packQty, packing }]);
@@ -347,20 +348,28 @@ export function WandaSaleSupplyScreen() {
           packing = numVal;
           if (packing > 0) {
             if (bagRate > 0) {
-              kgRate = round(bagRate / packing, 4);
+              kgRate = round(bagRate / packing, 8);
             } else if (kgRate > 0) {
-              bagRate = round(kgRate * packing, 4);
+              bagRate = round(kgRate * packing, 2);
             }
           }
         } else if (field === 'rate') {
-          kgRate = numVal;
-          if (packing > 0) {
-            bagRate = round(kgRate * packing, 4);
+          if (l.rate && round(numVal, 2) === round(l.rate, 2)) {
+            kgRate = l.rate;
+          } else {
+            kgRate = numVal;
+            if (packing > 0) {
+              bagRate = round(kgRate * packing, 2);
+            }
           }
         } else if (field === 'secRate') {
-          bagRate = numVal;
-          if (packing > 0) {
-            kgRate = round(bagRate / packing, 4);
+          if (l.secRate && round(numVal, 2) === round(l.secRate, 2)) {
+            bagRate = l.secRate;
+          } else {
+            bagRate = numVal;
+            if (packing > 0) {
+              kgRate = round(bagRate / packing, 8);
+            }
           }
         }
 
@@ -368,8 +377,8 @@ export function WandaSaleSupplyScreen() {
         updated.secQty = round(bagQty, 2);
         (updated as any).packQty = round(packQty, 2);
         (updated as any).packing = round(packing, 2);
-        updated.rate = round(kgRate, 4);
-        updated.secRate = round(bagRate, 4);
+        updated.rate = round(kgRate, 8);
+        updated.secRate = round(bagRate, 2);
 
         if (field === 'discount') updated.discount = numVal;
         if (field === 'addLess') updated.addLess = numVal;
@@ -746,7 +755,7 @@ export function WandaSaleSupplyScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = (line.qty * (line.rate - line.discount)) + (line.carriage || 0) + line.addLess;
+            const lineAmount = round((line.qty * (line.rate - line.discount)) + (line.carriage || 0) + line.addLess, 2);
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
@@ -821,7 +830,7 @@ export function WandaSaleSupplyScreen() {
                       style={styles.textInput}
                       placeholder="0.00"
                       placeholderTextColor={Theme.colors.textSecondary}
-                      value={String(line.rate)}
+                      value={String(round(line.rate, 2))}
                       onChangeText={(val) => updateLineField(line.seq, 'rate', val)}
                       keyboardType="numeric"
                     />
@@ -832,7 +841,7 @@ export function WandaSaleSupplyScreen() {
                       style={styles.textInput}
                       placeholder="0.00"
                       placeholderTextColor={Theme.colors.textSecondary}
-                      value={String(line.secRate ?? 0)}
+                      value={String(round(line.secRate ?? 0, 2))}
                       onChangeText={(val) => updateLineField(line.seq, 'secRate', val)}
                       keyboardType="numeric"
                     />

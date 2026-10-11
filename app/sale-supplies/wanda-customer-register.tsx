@@ -150,11 +150,11 @@ export default function WandaCustomerRegister() {
   const handleOpenEditModal = (line: EditableLine) => {
     setEditLine(line);
     setEditQty(String(line.qty || 0));
-    setEditRate(String(line.rate || 0));
+    setEditRate(String(Math.round(Number(line.rate || 0) * 100) / 100));
     setEditDiscount(String(line.discount || 0));
     setEditAddLess(String(line.addLess || 0));
     setEditSecQty(String(line.secQty || 0));
-    setEditSecRate(String(line.secRate || 0));
+    setEditSecRate(String(Math.round(Number(line.secRate || 0) * 100) / 100));
     const pack = (line.secQty && line.secQty > 0) ? (line.qty / line.secQty) : 50;
     setEditPackQty(String(Math.round(pack * 100) / 100));
     setEditModalVisible(true);
@@ -193,7 +193,7 @@ export default function WandaCustomerRegister() {
     const bagRate = parseFloat(val) || 0;
     const pack = parseFloat(editPackQty) || 50;
     if (bagRate > 0 && pack > 0) {
-      setEditRate(String(Math.round((bagRate / pack) * 10000) / 10000));
+      setEditRate(String(Math.round((bagRate / pack) * 100000000) / 100000000));
     }
   };
 
@@ -358,7 +358,7 @@ export default function WandaCustomerRegister() {
     const bagRate = parseFloat(val) || 0;
     const pack = parseFloat(addPackQty) || 50;
     if (bagRate > 0 && pack > 0) {
-      setAddRate(String(Math.round((bagRate / pack) * 10000) / 10000));
+      setAddRate(String(Math.round((bagRate / pack) * 100000000) / 100000000));
     }
   };
 
@@ -505,7 +505,7 @@ export default function WandaCustomerRegister() {
             {item.itemTitle || item.itemId}
           </Text>
           <Text style={styles.compactSubText} numberOfLines={1}>
-            Bags: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.secQty || 0}</Text> | {item.qty} Kg @ Rs. {item.rate}/Kg
+            Bags: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.secQty || 0}</Text> | {item.qty} Kg @ Rs. {Number(item.rate || 0).toFixed(2)}/Kg
             {item.addLess ? ` | Carriage: Rs. ${item.addLess}` : ''}
           </Text>
         </View>
