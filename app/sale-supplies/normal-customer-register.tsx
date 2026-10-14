@@ -163,7 +163,7 @@ export default function NormalCustomerRegister() {
     const secQty = parseFloat(editSecQty) || 0;
     const secRate = parseFloat(editSecRate) || 0;
 
-    const amount = Math.round(((qty * (rate - discount)) + addLess + (secQty * secRate)) * 100) / 100;
+    const amount = Math.round(((((qty * rate) + (secQty * secRate)) - discount) + addLess) * 100) / 100;
 
     setLines(prev => prev.map(l => (
       l.voucherNo === editLine.voucherNo && l.seq === editLine.seq

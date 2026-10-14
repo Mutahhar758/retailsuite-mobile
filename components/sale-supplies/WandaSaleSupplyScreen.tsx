@@ -543,9 +543,9 @@ export function WandaSaleSupplyScreen() {
 
       totalQty += q;
       totalSecQty += sq;
-      totalDiscount += (d * q);
+      totalDiscount += d;
       totalAddLess += al;
-      const amt = (q * (r - d)) + c + al;
+      const amt = (q * r) - d + c + al;
       totalAmount += amt;
 
       if (l.customerId) customerCount += 1;
@@ -755,7 +755,7 @@ export function WandaSaleSupplyScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = round((line.qty * (line.rate - line.discount)) + (line.carriage || 0) + line.addLess, 2);
+            const lineAmount = round(((line.qty * line.rate) - line.discount) + (line.carriage || 0) + line.addLess, 2);
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>

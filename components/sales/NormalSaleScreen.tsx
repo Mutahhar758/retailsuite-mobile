@@ -241,13 +241,13 @@ export function NormalSaleScreen() {
   }, [lines]);
 
   const totalDiscount = useMemo(() => {
-    return lines.reduce((sum, l) => sum + ((l.qty || 0) * (l.discount || 0)), 0);
+    return lines.reduce((sum, l) => sum + (l.discount || 0), 0);
   }, [lines]);
 
   const netAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
-      const perUnitRate = (l.rate || 0) - (l.discount || 0);
-      return sum + ((l.qty || 0) * perUnitRate + (l.carriage || 0) + ((l.secQty || 0) * (l.secRate || 0)));
+      const lineGross = ((l.qty || 0) * (l.rate || 0)) + ((l.secQty || 0) * (l.secRate || 0));
+      return sum + (lineGross - (l.discount || 0) + (l.carriage || 0));
     }, 0);
   }, [lines]);
 
@@ -525,8 +525,8 @@ export function NormalSaleScreen() {
             ) : (
               lines.map((line, index) => {
                 const itemObj = items.find(i => i.id === line.itemId);
-                const lineNetRate = (line.rate || 0) - (line.discount || 0);
-                const lineTotal = ((line.qty || 0) * lineNetRate) + ((line.secQty || 0) * (line.secRate || 0));
+                const lineGross = ((line.qty || 0) * (line.rate || 0)) + ((line.secQty || 0) * (line.secRate || 0));
+                const lineTotal = lineGross - (line.discount || 0);
 
                 return (
                   <View key={line.seq || index} style={styles.lineCard}>
@@ -536,7 +536,7 @@ export function NormalSaleScreen() {
                       </Text>
                       <Text style={styles.lineDetail}>
                         {line.qty} {getUnitTitle(line.unit)} @ Rs. {line.rate.toLocaleString()}
-                        {line.discount > 0 ? ` (Disc: -Rs. ${line.discount}/unit)` : ''}
+                        {line.discount > 0 ? ` (Disc: -Rs. ${line.discount})` : ''}
                       </Text>
                       {hasSecondaryQty && (line.secQty || 0) > 0 && (
                         <Text style={styles.lineDetailSub}>
@@ -785,7 +785,7 @@ export function NormalSaleScreen() {
                   <Text style={styles.linePreviewLabel}>Line Amount</Text>
                   <Text style={styles.linePreviewAmount}>
                     Rs. {(
-                      ((currentLine.qty || 0) * ((currentLine.rate || 0) - (currentLine.discount || 0))) +
+                      (((currentLine.qty || 0) * (currentLine.rate || 0)) - (currentLine.discount || 0)) +
                       ((currentLine.secQty || 0) * (currentLine.secRate || 0))
                     ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>

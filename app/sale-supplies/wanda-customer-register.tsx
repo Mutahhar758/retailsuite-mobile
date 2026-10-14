@@ -208,8 +208,8 @@ export default function WandaCustomerRegister() {
     const secQty = parseFloat(editSecQty) || 0;
     const secRate = parseFloat(editSecRate) || 0;
 
-    // Dual-unit amount: Weight * (Rate - Discount) + Carriage
-    const amount = Math.round(((qty * (rate - discount)) + addLess) * 100) / 100;
+    // Dual-unit amount: (Weight * Rate) - Discount + Carriage
+    const amount = Math.round((((qty * rate) - discount) + addLess) * 100) / 100;
 
     setLines(prev => prev.map(l => (
       l.voucherNo === editLine.voucherNo && l.seq === editLine.seq

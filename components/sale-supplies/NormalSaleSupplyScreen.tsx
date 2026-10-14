@@ -466,9 +466,9 @@ export function NormalSaleSupplyScreen() {
 
       totalQty += q;
       totalSecQty += sq;
-      totalDiscount += (d * q);
+      totalDiscount += d;
       totalAddLess += al;
-      const amt = (q * (r - d)) + c + al + (sq * sr);
+      const amt = ((q * r) + (sq * sr)) - d + c + al;
       totalAmount += amt;
 
       if (l.customerId) customerCount += 1;
@@ -678,7 +678,7 @@ export function NormalSaleSupplyScreen() {
           )}
 
           {filteredLines.map((line, index) => {
-            const lineAmount = (line.qty * (line.rate - line.discount)) + (line.carriage || 0) + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
+            const lineAmount = (((line.qty * line.rate) + ((line.secQty ?? 0) * (line.secRate ?? 0))) - line.discount) + (line.carriage || 0) + line.addLess;
             return (
               <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
