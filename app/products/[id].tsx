@@ -52,6 +52,7 @@ export default function ProductFormScreen() {
   const [alert, setAlert] = useState(false);
   const [lowStockAlert, setLowStockAlert] = useState(false);
   const [lowStockQty, setLowStockQty] = useState('0');
+  const [minSalePrice, setMinSalePrice] = useState('');
   const [opnStock, setOpnStock] = useState('0');
   const [opnRate, setOpnRate] = useState('0');
   
@@ -92,6 +93,7 @@ export default function ProductFormScreen() {
           setAlert(details.alert ?? false);
           setLowStockAlert(details.lowStockAlert ?? false);
           setLowStockQty((details.lowStockQty ?? 0).toString());
+          setMinSalePrice(details.minSalePrice != null ? details.minSalePrice.toString() : '');
           setOpnStock((details.opnStock ?? 0).toString());
           setOpnRate((details.opnRate ?? 0).toString());
           setMediaId(details.mediaId || null);
@@ -205,6 +207,7 @@ export default function ProductFormScreen() {
         alert,
         lowStockAlert: itemType === 'Service' ? false : lowStockAlert,
         lowStockQty: itemType === 'Service' || !lowStockAlert ? undefined : (parseFloat(lowStockQty) || 0),
+        minSalePrice: minSalePrice ? (parseFloat(minSalePrice) || 0) : null,
         opnStock: itemType === 'Service' ? undefined : parseFloat(opnStock) || 0,
         opnRate: itemType === 'Service' ? undefined : parseFloat(opnRate) || 0,
         itemType,
@@ -469,6 +472,17 @@ export default function ProductFormScreen() {
                 />
               </View>
             )}
+            <View style={[styles.inputGroup, { marginTop: Theme.spacing.md }]}>
+              <Text style={styles.label}>Minimum Sale Price (Rs.)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Optional min price cap"
+                placeholderTextColor={Theme.colors.textSecondary}
+                keyboardType="numeric"
+                value={minSalePrice}
+                onChangeText={setMinSalePrice}
+              />
+            </View>
           </Animated.View>
 
           {itemType !== 'Service' && (

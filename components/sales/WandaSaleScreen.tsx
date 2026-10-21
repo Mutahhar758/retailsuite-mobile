@@ -593,10 +593,18 @@ export function WandaSaleScreen() {
                       <Text style={styles.lineAccount} numberOfLines={1}>
                         {itemObj?.title || `Item #${line.itemId}`}
                       </Text>
-                      <Text style={styles.lineDetail}>
-                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {Number(line.rate || 0).toFixed(2)}/Kg
-                        {line.discount > 0 ? ` (Disc: -Rs. ${line.discount})` : ''}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                        <Text style={styles.lineDetail}>
+                          {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {Number(line.rate || 0).toFixed(2)}/Kg
+                          {line.discount > 0 ? ` (Disc: -Rs. ${line.discount})` : ''}
+                        </Text>
+                        {!!itemObj?.minSalePrice && Number(itemObj.minSalePrice) > 0 && Number(line.rate || 0) <= Number(itemObj.minSalePrice) && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                            <Ionicons name="warning" size={12} color="#D97706" style={{ marginRight: 2 }} />
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#B45309' }}>Min Cap (Rs. {itemObj.minSalePrice})</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.lineDetailSub}>
                         Bag Rate: Rs. {Number(line.secRate || 0).toFixed(2)} | Pack: {line.packQty || 0} | Packing: {line.packing || 0}
                       </Text>
@@ -829,13 +837,29 @@ export function WandaSaleScreen() {
                 {/* Rates */}
                 <View style={styles.row}>
                   <View style={[styles.formGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Rate (Rs./Kg) *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.rate !== undefined ? String(round(currentLine.rate, 2)) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('rate', val)}
-                    />
+                    {(() => {
+                      const selItem = items.find(i => i.id === currentLine.itemId);
+                      const minPrice = Number(selItem?.minSalePrice || 0);
+                      const isAtMin = minPrice > 0 && Number(currentLine.rate || 0) <= minPrice;
+                      return (
+                        <>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={styles.label}>Rate (Rs./Kg) *</Text>
+                            {isAtMin && (
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706' }}>
+                                ⚠️ Min Cap: Rs. {minPrice}
+                              </Text>
+                            )}
+                          </View>
+                          <TextInput
+                            style={[styles.textInput, isAtMin && { borderColor: '#F59E0B', borderWidth: 1.5, backgroundColor: '#FFFBEB' }]}
+                            keyboardType="numeric"
+                            value={currentLine.rate !== undefined ? String(round(currentLine.rate, 2)) : '0'}
+                            onChangeText={(val) => updateCurrentLineField('rate', val)}
+                          />
+                        </>
+                      );
+                    })()}
                   </View>
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Bag Rate (Rs./Bag)</Text>

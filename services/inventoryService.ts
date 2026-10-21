@@ -18,6 +18,7 @@ export interface Item {
   alert: boolean;
   lowStockAlert?: boolean;
   lowStockQty?: number;
+  minSalePrice?: number | null;
   opnStock?: number;
   opnRate?: number;
   itemType?: string;
@@ -42,6 +43,7 @@ export interface InventoryItemUpsertRequest {
   alert: boolean;
   lowStockAlert?: boolean;
   lowStockQty?: number;
+  minSalePrice?: number | null;
   opnStock?: number;
   opnRate?: number;
   itemType?: string;
