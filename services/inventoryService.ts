@@ -15,6 +15,7 @@ export interface Item {
   qtyInPack?: number;
   alert: boolean;
   lowStockAlert?: boolean;
+  lowStockQty?: number;
   opnStock?: number;
   opnRate?: number;
   itemType?: string;
@@ -36,6 +37,7 @@ export interface InventoryItemUpsertRequest {
   qtyInPack?: number;
   alert: boolean;
   lowStockAlert?: boolean;
+  lowStockQty?: number;
   opnStock?: number;
   opnRate?: number;
   itemType?: string;

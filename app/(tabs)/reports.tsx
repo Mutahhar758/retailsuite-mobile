@@ -234,6 +234,7 @@ export default function ReportsScreen() {
 
   // Toggles & Filters
   const [showStockValue, setShowStockValue] = useState(true);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [customerBillLayout, setCustomerBillLayout] = useState<'Thermal' | 'A4'>('Thermal');
   const [balanceFilter, setBalanceFilter] = useState<'All' | 'OutstandingOnly' | 'ClearedOnly' | 'UnpaidOnly'>('All');
@@ -548,6 +549,7 @@ export default function ReportsScreen() {
             toDate: toStr,
             catagory: selectedCategoryCode || undefined,
             showStockValue,
+            filter: lowStockOnly ? 'LowStock' : 'All',
           });
           break;
 
@@ -1030,15 +1032,26 @@ export default function ReportsScreen() {
 
           {/* Switches for Stock & Ledger */}
           {selectedReportId === 'stock_balance' && (
-            <View style={styles.switchRow}>
-              <Text style={styles.switchTitle}>Show Stock Value</Text>
-              <Switch
-                value={showStockValue}
-                onValueChange={setShowStockValue}
-                trackColor={{ false: '#cbd5e1', true: '#818cf8' }}
-                thumbColor={showStockValue ? '#4f46e5' : '#f8fafc'}
-              />
-            </View>
+            <>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchTitle}>Show Stock Value</Text>
+                <Switch
+                  value={showStockValue}
+                  onValueChange={setShowStockValue}
+                  trackColor={{ false: '#cbd5e1', true: '#818cf8' }}
+                  thumbColor={showStockValue ? '#4f46e5' : '#f8fafc'}
+                />
+              </View>
+              <View style={[styles.switchRow, { marginTop: 10 }]}>
+                <Text style={styles.switchTitle}>Low Stock Only</Text>
+                <Switch
+                  value={lowStockOnly}
+                  onValueChange={setLowStockOnly}
+                  trackColor={{ false: '#cbd5e1', true: '#f59e0b' }}
+                  thumbColor={lowStockOnly ? '#d97706' : '#f8fafc'}
+                />
+              </View>
+            </>
           )}
 
           {selectedReportId === 'item_ledger' && (

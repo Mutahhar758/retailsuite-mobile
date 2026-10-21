@@ -51,6 +51,7 @@ export default function ProductFormScreen() {
   const [qtyInPack, setQtyInPack] = useState('1');
   const [alert, setAlert] = useState(false);
   const [lowStockAlert, setLowStockAlert] = useState(false);
+  const [lowStockQty, setLowStockQty] = useState('0');
   const [opnStock, setOpnStock] = useState('0');
   const [opnRate, setOpnRate] = useState('0');
   
@@ -90,6 +91,7 @@ export default function ProductFormScreen() {
           setQtyInPack((details.qtyInPack ?? 1).toString());
           setAlert(details.alert ?? false);
           setLowStockAlert(details.lowStockAlert ?? false);
+          setLowStockQty((details.lowStockQty ?? 0).toString());
           setOpnStock((details.opnStock ?? 0).toString());
           setOpnRate((details.opnRate ?? 0).toString());
           setMediaId(details.mediaId || null);
@@ -202,6 +204,7 @@ export default function ProductFormScreen() {
         qtyInPack: itemType === 'Service' ? undefined : parseFloat(qtyInPack) || 1,
         alert,
         lowStockAlert: itemType === 'Service' ? false : lowStockAlert,
+        lowStockQty: itemType === 'Service' || !lowStockAlert ? undefined : (parseFloat(lowStockQty) || 0),
         opnStock: itemType === 'Service' ? undefined : parseFloat(opnStock) || 0,
         opnRate: itemType === 'Service' ? undefined : parseFloat(opnRate) || 0,
         itemType,
@@ -515,18 +518,34 @@ export default function ProductFormScreen() {
             </View>
 
             {itemType !== 'Service' && (
-              <View style={styles.switchRow}>
-                <View>
-                  <Text style={styles.switchLabel}>Low Stock Alert</Text>
-                  <Text style={styles.switchDesc}>Alert when stock falls below limit</Text>
+              <>
+                <View style={styles.switchRow}>
+                  <View>
+                    <Text style={styles.switchLabel}>Low Stock Alert</Text>
+                    <Text style={styles.switchDesc}>Alert when stock falls below limit</Text>
+                  </View>
+                  <Switch
+                    value={lowStockAlert}
+                    onValueChange={setLowStockAlert}
+                    trackColor={{ false: Theme.colors.border, true: Theme.colors.primary }}
+                    thumbColor={Theme.colors.white}
+                  />
                 </View>
-                <Switch
-                  value={lowStockAlert}
-                  onValueChange={setLowStockAlert}
-                  trackColor={{ false: Theme.colors.border, true: Theme.colors.primary }}
-                  thumbColor={Theme.colors.white}
-                />
-              </View>
+
+                {lowStockAlert && (
+                  <View style={[styles.inputGroup, { marginTop: Theme.spacing.sm }]}>
+                    <Text style={styles.label}>Low Stock Quantity Threshold</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="0.00"
+                      placeholderTextColor={Theme.colors.textSecondary}
+                      keyboardType="numeric"
+                      value={lowStockQty}
+                      onChangeText={setLowStockQty}
+                    />
+                  </View>
+                )}
+              </>
             )}
           </Animated.View>
 
