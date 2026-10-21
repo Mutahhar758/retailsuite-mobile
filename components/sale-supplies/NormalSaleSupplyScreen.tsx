@@ -27,6 +27,7 @@ import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderServi
 import { customerService } from '../../services/customerService';
 import { useAppStore } from '../../store/appStore';
 import { round } from '../../utils/numberUtils';
+import { ScanSupplySheetModal, type MobileScannedAttachmentMeta } from './ScanSupplySheetModal';
 
 export function NormalSaleSupplyScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
@@ -68,6 +69,10 @@ export function NormalSaleSupplyScreen() {
   const [activeLineSeq, setActiveLineSeq] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [lineSearchQuery, setLineSearchQuery] = useState('');
+
+  // AI Sheet Scan
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [stagedMediaIds, setStagedMediaIds] = useState<string[]>([]);
 
   useEffect(() => {
     loadLookups();
@@ -356,6 +361,45 @@ export function NormalSaleSupplyScreen() {
     });
   };
 
+  const handleImportScannedLines = (
+    importedLines: any[],
+    attachments?: MobileScannedAttachmentMeta[]
+  ) => {
+    if (attachments && attachments.length > 0) {
+      const newMediaIds = attachments.map(a => a.mediaId);
+      setStagedMediaIds(prev => Array.from(new Set([...prev, ...newMediaIds])));
+      if (isEdit && voucherNo && voucherNo !== 'new') {
+        attachments.forEach(att => {
+          saleSupplyService.addAttachment(voucherNo!, {
+            mediaId: att.mediaId,
+            fileName: att.fileName,
+            description: 'Scanned paper slip'
+          }).catch(err => console.warn('Failed to add attachment to existing voucher:', err));
+        });
+      }
+    }
+
+    setLines(prev => {
+      const isBlankOnly = prev.length === 1 && !prev[0].customerId && (Number(prev[0].qty) || 0) <= 1 && (Number(prev[0].rate) || 0) === 0;
+      const baseSeq = isBlankOnly ? 0 : (prev.length > 0 ? Math.max(...prev.map(l => l.seq)) : 0);
+      const mapped = importedLines.map((line, idx) => ({
+        seq: baseSeq + idx + 1,
+        customerId: line.customerId || '',
+        unit: '',
+        qty: Number(line.qty) || 1,
+        rate: Number(line.rate) || 0,
+        discount: Number(line.discount) || 0,
+        addLess: Number(line.addLess) || 0,
+        carriage: Number(line.carriage) || 0,
+        secQty: 0,
+        secRate: 0
+      }));
+      return isBlankOnly ? mapped : [...prev, ...mapped];
+    });
+
+    Alert.alert('Import Complete', `Imported ${importedLines.length} lines from sheet.`);
+  };
+
   const handleSave = async () => {
     if (!itemId) {
       Alert.alert('Validation Error', 'Please select an item for the supply sheet');
@@ -391,7 +435,8 @@ export function NormalSaleSupplyScreen() {
           secUnit: l.secUnit || undefined,
           secQty: Number(l.secQty) || 0,
           secRate: Number(l.secRate) || 0
-        }))
+        })),
+        attachmentMediaIds: stagedMediaIds.length > 0 ? stagedMediaIds : undefined
       };
 
       if (isEdit) {
@@ -653,10 +698,19 @@ export function NormalSaleSupplyScreen() {
               <Text style={styles.linesTitle}>Customer Deliveries</Text>
               <Text style={styles.linesSubtitle}>{lines.length} {lines.length === 1 ? 'Customer' : 'Customers'}</Text>
             </View>
-            <TouchableOpacity style={styles.addLineBtn} onPress={addLine}>
-              <Ionicons name="add" size={16} color={Theme.colors.white} />
-              <Text style={styles.addLineText}>Add Line</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.addLineBtn, { backgroundColor: '#7c3aed' }]}
+                onPress={() => setScanModalVisible(true)}
+              >
+                <Ionicons name="camera-outline" size={16} color={Theme.colors.white} />
+                <Text style={styles.addLineText}>AI Scan</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.addLineBtn} onPress={addLine}>
+                <Ionicons name="add" size={16} color={Theme.colors.white} />
+                <Text style={styles.addLineText}>Add Line</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {lines.length > 5 && (
@@ -921,6 +975,14 @@ export function NormalSaleSupplyScreen() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      <ScanSupplySheetModal
+        visible={scanModalVisible}
+        onClose={() => setScanModalVisible(false)}
+        customers={customers}
+        initialDate={dayjs(date).format('YYYY-MM-DD')}
+        onImportLines={handleImportScannedLines}
+      />
     </SafeAreaView>
   );
 }
