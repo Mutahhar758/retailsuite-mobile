@@ -315,7 +315,8 @@ export function WandaSaleScreen() {
 
   const netAmount = useMemo(() => {
     return lines.reduce((sum, l) => {
-      return sum + (((l.qty || 0) * (l.rate || 0)) - (l.discount || 0) + (l.carriage || 0));
+      const carriageAmt = ((l.secQty || 0) * (l.carriage || 0));
+      return sum + (((l.qty || 0) * (l.rate || 0)) - (l.discount || 0) + carriageAmt);
     }, 0);
   }, [lines]);
 
@@ -583,7 +584,8 @@ export function WandaSaleScreen() {
             ) : (
               lines.map((line, index) => {
                 const itemObj = items.find(i => i.id === line.itemId);
-                const lineTotal = ((line.qty || 0) * (line.rate || 0)) - (line.discount || 0);
+                const carriageAmt = ((line.secQty || 0) * (line.carriage || 0));
+                const lineTotal = ((line.qty || 0) * (line.rate || 0)) - (line.discount || 0) + carriageAmt;
 
                 return (
                   <View key={line.seq || index} style={styles.lineCard}>
@@ -864,7 +866,7 @@ export function WandaSaleScreen() {
                   <Text style={styles.linePreviewLabel}>Line Amount</Text>
                   <Text style={styles.linePreviewAmount}>
                     Rs. {(
-                      ((currentLine.qty || 0) * (currentLine.rate || 0)) - (currentLine.discount || 0)
+                      ((currentLine.qty || 0) * (currentLine.rate || 0)) - (currentLine.discount || 0) + ((currentLine.secQty || 0) * (currentLine.carriage || 0))
                     ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </View>
