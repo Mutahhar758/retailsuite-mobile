@@ -75,7 +75,7 @@ export function NormalPurchaseScreen() {
       const [sups, narrs, itms, unts] = await Promise.all([
         chartOfAccountService.getSupplierAccounts(),
         narrationService.getActiveNarrationsLookup(),
-        inventoryService.getItemsLookup(),
+        inventoryService.getItemsLookup(undefined, true),
         inventoryService.getUnitsLookup()
       ]);
       setSuppliers(sups || []);
@@ -148,10 +148,10 @@ export function NormalPurchaseScreen() {
       let secRate = 0;
       if (selectedItem) {
         defaultUnit = selectedItem.defaultUnit || selectedItem.primaryUnit || '';
-        defaultRate = selectedItem.priRate || 0;
+        defaultRate = selectedItem.lastPurchaseRate ?? selectedItem.priRate ?? 0;
         secUnit = selectedItem.secondaryUnit || '';
         const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
-        secRate = selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1));
+        secRate = selectedItem.lastPurchaseSecRate ?? (selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1)));
       }
       setCurrentLine(prev => ({
         ...prev,

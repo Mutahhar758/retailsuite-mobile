@@ -7,6 +7,8 @@ export interface Item {
   itemCategoryTitle?: string;
   title: string;
   itemKey?: string;
+  lastPurchaseRate?: number | null;
+  lastPurchaseSecRate?: number | null;
   priRate: number;
   secRate: number;
   primaryUnit?: string;
@@ -29,6 +31,8 @@ export interface InventoryItemUpsertRequest {
   barcode?: string;
   title: string;
   itemKey?: string;
+  lastPurchaseRate?: number | null;
+  lastPurchaseSecRate?: number | null;
   priRate: number;
   secRate: number;
   primaryUnit: string;
@@ -55,8 +59,8 @@ export const inventoryService = {
     return response.data.body as Item[];
   },
 
-  async getItemsLookup(categoryCode?: string) {
-    const response = await api.get('/api/inventory/items/lookup', { params: { itemCategoryCode: categoryCode } });
+  async getItemsLookup(categoryCode?: string, includeLastPurchaseRate: boolean = false) {
+    const response = await api.get('/api/inventory/items/lookup', { params: { itemCategoryCode: categoryCode, ...(includeLastPurchaseRate ? { includeLastPurchaseRate: true } : {}) } });
     return response.data.body as Item[];
   },
 

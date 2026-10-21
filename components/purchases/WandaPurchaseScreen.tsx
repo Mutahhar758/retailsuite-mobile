@@ -70,7 +70,7 @@ export function WandaPurchaseScreen() {
       const [sups, narrs, itms] = await Promise.all([
         chartOfAccountService.getSupplierAccounts(),
         narrationService.getActiveNarrationsLookup(),
-        inventoryService.getItemsLookup()
+        inventoryService.getItemsLookup(undefined, true)
       ]);
       setSuppliers(sups || []);
       setNarrations(narrs || []);
@@ -145,8 +145,8 @@ export function WandaPurchaseScreen() {
         const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
         packQty = pSize;
         packing = pSize;
-        secRate = selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1));
-        defaultRate = (pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0);
+        secRate = selectedItem.lastPurchaseSecRate ?? (selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1)));
+        defaultRate = selectedItem.lastPurchaseRate ?? ((pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0));
       }
       setCurrentLine(prev => ({
         ...prev,
