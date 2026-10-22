@@ -64,11 +64,19 @@ export const receiptService = {
     cashBankAccount?: string;
     account?: string;
     narration?: string;
+    voucherNo?: string;
+    pageNumber?: number;
+    pageSize?: number;
   }) {
-    const response = await api.get('/api/receipts', { params });
-    return response.data.body as ReceiptDto[];
+    const response = await api.get('/api/receipts/paged', { params });
+    const body = response.data.body;
+    return {
+      data: (body?.data ?? []) as ReceiptDto[],
+      totalCount: (body?.metadata?.totalCount ?? 0) as number,
+      currentPage: (body?.metadata?.currentPage ?? 1) as number,
+      totalPages: (body?.metadata?.totalPages ?? 1) as number,
+    };
   },
-
   async getDetail(voucherNo: string, cashBankAccount?: string) {
     const response = await api.get(`/api/receipts/${voucherNo}`, {
       params: { cashBankAccount },

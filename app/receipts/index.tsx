@@ -21,30 +21,47 @@ export default function ReceiptsListScreen() {
   const [receipts, setReceipts] = useState<ReceiptDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchReceipts = useCallback(async () => {
+  const PAGE_SIZE = 20;
+
+  const fetchReceipts = useCallback(async (pageNumber = 1) => {
     try {
-      const data = await receiptService.getList();
-      setReceipts(data);
+      const result = await receiptService.getList({ pageNumber, pageSize: PAGE_SIZE });
+      setReceipts(prev => {
+        if (pageNumber === 1) return result.data;
+        const seen = new Set(prev.map(r => r.voucherNo));
+        return [...prev, ...result.data.filter(r => !seen.has(r.voucherNo))];
+      });
+      setPage(pageNumber);
+      setHasMore(pageNumber < result.totalPages);
     } catch (error) {
       console.error('Failed to fetch receipts', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchReceipts();
+      fetchReceipts(1);
     }, [fetchReceipts])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchReceipts();
+    fetchReceipts(1);
   };
 
+  const onEndReached = () => {
+    if (loading || refreshing || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchReceipts(page + 1);
+  };
   const renderItem = ({ item, index }: { item: ReceiptDto; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 100).duration(400)}>
       <TouchableOpacity 
@@ -93,6 +110,9 @@ export default function ReceiptsListScreen() {
           data={receipts}
           keyExtractor={(item) => item.voucherNo}
           renderItem={renderItem}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Theme.colors.primary} /> : null}
           contentContainerStyle={styles.listContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
