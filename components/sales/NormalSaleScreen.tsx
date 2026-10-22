@@ -25,6 +25,11 @@ import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/cha
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item, Unit } from '../../services/inventoryService';
 import { useAppStore } from '../../store/appStore';
+import {
+  MobileSaleReceiptModal,
+  type MobileSaleReceiptData,
+  type MobileSaleReceiptLine
+} from './MobileSaleReceiptModal';
 
 export function NormalSaleScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
@@ -56,6 +61,11 @@ export function NormalSaleScreen() {
   
   // Lines State
   const [lines, setLines] = useState<SaleLineRequest[]>([]);
+
+  // Receipt Modal State
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
+  const [activeReceiptData, setActiveReceiptData] = useState<MobileSaleReceiptData | null>(null);
+  const justSavedRef = useRef(false);
   
   // Line Modal State
   const [lineModalVisible, setLineModalVisible] = useState(false);
@@ -255,6 +265,78 @@ export function NormalSaleScreen() {
   const numCashBack = parseFloat(cashBack) || 0;
   const balanceDue = netAmount - numCashReceipt + numCashBack;
 
+  const getUnitTitle = (codeOrTitle?: string | null, item?: Item | null) => {
+    if (!codeOrTitle && !item) return '';
+    const clean = String(codeOrTitle || '').trim();
+    if (clean) {
+      const u = units.find(x => 
+        x.code?.toLowerCase() === clean.toLowerCase() || 
+        x.title?.toLowerCase() === clean.toLowerCase()
+      );
+      if (u) return (u.shortTitle && u.shortTitle.trim()) || u.title;
+    }
+    if (item) {
+      if (clean && item.primaryUnit?.toLowerCase() === clean.toLowerCase() && item.primaryUnitTitle) {
+        return item.primaryUnitTitle;
+      }
+      if (clean && (item as any).defaultUnit?.toLowerCase() === clean.toLowerCase() && (item as any).defaultUnitTitle) {
+        return (item as any).defaultUnitTitle;
+      }
+      if (clean && item.secondaryUnit?.toLowerCase() === clean.toLowerCase() && item.secondaryUnitTitle) {
+        return item.secondaryUnitTitle;
+      }
+      if (!clean && (item.primaryUnitTitle || (item as any).defaultUnitTitle)) {
+        return item.primaryUnitTitle || (item as any).defaultUnitTitle;
+      }
+    }
+    if (/^\d+$/.test(clean)) return '';
+    return clean;
+  };
+
+  const buildReceiptData = (voucherNum?: string, isReprint: boolean = false): MobileSaleReceiptData | null => {
+    if (lines.length === 0) return null;
+    const customer = customers.find(c => c.account === customerAccount);
+    const narr = narrations.find(n => n.code === narration);
+
+    const receiptLines: MobileSaleReceiptLine[] = lines.map((l, idx) => {
+      const itm = items.find(i => String(i.id) === String(l.itemId));
+      const q = Number(l.qty) || 0;
+      const r = Number(l.rate) || 0;
+      const d = Number(l.discount) || 0;
+      const resolvedUnit = itm?.itemType === 'Service' ? '' : (getUnitTitle(l.unit, itm) || '');
+      return {
+        seq: l.seq || idx + 1,
+        itemTitle: itm?.title || `Item #${l.itemId}`,
+        qty: q,
+        unit: resolvedUnit,
+        rate: r,
+        discount: d,
+        amount: (q * r) - d
+      };
+    });
+
+    const received = parseFloat(cashReceipt) || 0;
+    const change = parseFloat(cashBack) || 0;
+
+    return {
+      voucherNo: voucherNum || (isEdit ? `SL-${voucherNo}` : 'DRAFT'),
+      date: date || new Date(),
+      customerName: customer?.title || customerAccount || 'Walk-in Customer',
+      customerPhone: (customer as any)?.phone,
+      narration: narr?.title,
+      description,
+      lines: receiptLines,
+      grossTotal: grossAmount,
+      totalDiscount,
+      netAmount,
+      cashReceived: received,
+      cashBack: change,
+      balance: Math.max(0, netAmount - received),
+      orgName: currentOrg?.name,
+      isDuplicate: Boolean(isReprint || isEdit)
+    };
+  };
+
   // Auto sync cash receipt with net amount for rapid checkout
   useEffect(() => {
     if (!isEdit || mode === 'copy') {
@@ -283,7 +365,7 @@ export function NormalSaleScreen() {
     }
   };
 
-  const handleSaveVoucher = async () => {
+  const handleSaveVoucher = async (shouldShowReceipt: boolean = true) => {
     if (!customerAccount || !date) {
       Alert.alert('Validation Error', 'Date and Customer Account are required.');
       return;
@@ -320,10 +402,24 @@ export function NormalSaleScreen() {
 
       if (isEdit) {
         await saleService.update(voucherNo!, request);
-        Alert.alert('Success', 'Sale voucher updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        if (shouldShowReceipt) {
+          const receipt = buildReceiptData(`SL-${voucherNo}`, true);
+          justSavedRef.current = true;
+          setActiveReceiptData(receipt);
+          setReceiptModalVisible(true);
+        } else {
+          Alert.alert('Success', 'Sale voucher updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        }
       } else {
-        await saleService.create(request);
-        Alert.alert('Success', 'Sale voucher created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        const createdVoucher = await saleService.create(request);
+        if (shouldShowReceipt) {
+          const receipt = buildReceiptData(`SL-${createdVoucher}`, false);
+          justSavedRef.current = true;
+          setActiveReceiptData(receipt);
+          setReceiptModalVisible(true);
+        } else {
+          Alert.alert('Success', 'Sale voucher created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        }
       }
     } catch (error: any) {
       console.error('Failed to save sale:', error?.response?.data || error);
@@ -364,18 +460,6 @@ export function NormalSaleScreen() {
         } 
       }
     ]);
-  };
-
-  const getUnitTitle = (codeOrTitle?: string | null) => {
-    if (!codeOrTitle) return '';
-    const clean = String(codeOrTitle).trim();
-    const u = units.find(x => 
-      x.code.toLowerCase() === clean.toLowerCase() || 
-      x.title.toLowerCase() === clean.toLowerCase()
-    );
-    if (u) return u.title;
-    if (/^\d+$/.test(clean)) return '';
-    return clean;
   };
 
   // Filter items for searchable select modal
@@ -672,21 +756,49 @@ export function NormalSaleScreen() {
               >
                 <Ionicons name="copy-outline" size={22} color={Theme.colors.primary} />
               </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.copyBtn}
+                onPress={() => {
+                  const receipt = buildReceiptData(`SL-${voucherNo}`, true);
+                  if (receipt) {
+                    setActiveReceiptData(receipt);
+                    setReceiptModalVisible(true);
+                  }
+                }}
+                disabled={saving}
+              >
+                <Ionicons name="receipt-outline" size={22} color="#0284c7" />
+              </TouchableOpacity>
             </>
           )}
 
           <TouchableOpacity 
-            style={[styles.saveBtn, { flex: 1 }]}
-            onPress={handleSaveVoucher}
+            style={styles.saveOnlyBtn}
+            onPress={() => handleSaveVoucher(false)}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#0284c7" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={18} color="#0284c7" style={{ marginRight: 4 }} />
+                <Text style={styles.saveOnlyBtnText}>Save Only</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.saveBtn, { flex: 1.3 }]}
+            onPress={() => handleSaveVoucher(true)}
             disabled={saving}
           >
             {saving ? (
               <ActivityIndicator color={Theme.colors.white} />
             ) : (
               <>
-                <Ionicons name="checkmark-circle-outline" size={22} color={Theme.colors.white} style={{ marginRight: 6 }} />
+                <Ionicons name="print-outline" size={18} color={Theme.colors.white} style={{ marginRight: 6 }} />
                 <Text style={styles.saveBtnText}>
-                  {isEdit ? 'Update Sale Voucher' : 'Save Sale Voucher'}
+                  {isEdit ? 'Update & Print' : 'Save & Print'}
                 </Text>
               </>
             )}
@@ -897,6 +1009,17 @@ export function NormalSaleScreen() {
         </Modal>
 
       </KeyboardAvoidingView>
+
+      <MobileSaleReceiptModal
+        visible={receiptModalVisible}
+        receiptData={activeReceiptData}
+        onClose={() => {
+          setReceiptModalVisible(false);
+          if (justSavedRef.current) {
+            router.back();
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1136,6 +1259,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Theme.spacing.sm,
+  },
+  saveOnlyBtn: {
+    height: 50,
+    borderRadius: Theme.radii.md,
+    borderWidth: 1.5,
+    borderColor: '#0284c7',
+    backgroundColor: '#f0f9ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    marginRight: Theme.spacing.sm,
+  },
+  saveOnlyBtnText: {
+    ...Theme.typography.bodyMedium,
+    color: '#0284c7',
+    fontWeight: '700',
   },
   saveBtn: {
     backgroundColor: Theme.colors.primary,
