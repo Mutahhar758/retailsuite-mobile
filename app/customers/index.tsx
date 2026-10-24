@@ -63,10 +63,19 @@ export default function CustomersListScreen() {
           <View style={{ flex: 1, marginLeft: Theme.spacing.sm }}>
             <View style={styles.cardHeader}>
               <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
-                <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
-                  {item.active ? 'Active' : 'Inactive'}
-                </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {Boolean(item.isSubAccount || item.parentCustomerAccountId) && (
+                  <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe' }]}>
+                    <Text style={[styles.statusText, { color: '#0369a1' }]}>
+                      Sub-Account
+                    </Text>
+                  </View>
+                )}
+                <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
+                  <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
+                    {item.active ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
               </View>
             </View>
             <View style={styles.cardBody}>
@@ -83,7 +92,9 @@ export default function CustomersListScreen() {
         </View>
         
         <View style={styles.cardFooter}>
-          <Text style={styles.accountNo}>{item.account}</Text>
+          <Text style={styles.accountNo}>
+            {item.account}{item.parentCustomerTitle ? ` • Sub of: ${item.parentCustomerTitle}` : ''}
+          </Text>
           <Ionicons name="chevron-forward" size={16} color={Theme.colors.textSecondary} />
         </View>
       </TouchableOpacity>

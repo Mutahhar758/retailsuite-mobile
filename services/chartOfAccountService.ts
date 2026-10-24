@@ -9,6 +9,10 @@ export interface ChartOfAccountDto {
 export interface ChartOfAccountHeadDto {
   account: string;
   title: string;
+  customerCategoryId?: string;
+  parentCustomerAccountId?: string;
+  parentCustomerTitle?: string;
+  isSubAccount?: boolean;
 }
 
 export const chartOfAccountService = {
@@ -42,4 +46,3 @@ export const chartOfAccountService = {
     return response.data.body as ChartOfAccountHeadDto[];
   }
 };
-

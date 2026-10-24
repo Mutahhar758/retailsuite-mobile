@@ -620,7 +620,8 @@ export function WandaSaleSupplyScreen() {
 
   const filteredCustomers = customers.filter(c => 
     c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.account.toLowerCase().includes(searchQuery.toLowerCase())
+    c.account.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (c.parentCustomerTitle && c.parentCustomerTitle.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const filteredNarrations = narrations.filter(n => 
@@ -644,7 +645,10 @@ export function WandaSaleSupplyScreen() {
 
   const getCustomerName = (accId: string) => {
     const c = customers.find(item => item.account === accId);
-    return c ? `${c.title} (${c.account})` : 'Select Customer';
+    if (!c) return 'Select Customer';
+    return c.parentCustomerTitle
+      ? `${c.title} (Sub of: ${c.parentCustomerTitle}) (${c.account})`
+      : `${c.title} (${c.account})`;
   };
 
   const getItemName = (id: string) => {
@@ -1033,7 +1037,9 @@ export function WandaSaleSupplyScreen() {
                 >
                   <View>
                     <Text style={styles.modalItemTitle}>{cust.title}</Text>
-                    <Text style={styles.modalItemSubtitle}>Account: {cust.account}</Text>
+                    <Text style={styles.modalItemSubtitle}>
+                      {cust.parentCustomerTitle ? `Sub of: ${cust.parentCustomerTitle} • ` : ''}Account: {cust.account}
+                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
                 </TouchableOpacity>

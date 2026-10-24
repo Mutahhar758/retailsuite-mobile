@@ -469,7 +469,8 @@ export default function WandaCustomerRegister() {
     if (!searchQuery) return customers;
     return customers.filter(c =>
       c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.account.toLowerCase().includes(searchQuery.toLowerCase())
+      c.account.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.parentCustomerTitle && c.parentCustomerTitle.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [customers, searchQuery]);
 
@@ -501,9 +502,18 @@ export default function WandaCustomerRegister() {
 
         {/* Center Column: Item Title & Dual Metrics Formula */}
         <View style={styles.compactCenter}>
-          <Text style={styles.compactItemTitle} numberOfLines={1}>
-            {item.itemTitle || item.itemId}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.compactItemTitle} numberOfLines={1}>
+              {item.itemTitle || item.itemId}
+            </Text>
+            {Boolean(item.subAccountTitle) && (
+              <View style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                <Text style={{ fontSize: 10, color: '#0369a1', fontWeight: '700' }}>
+                  {item.subAccountTitle}
+                </Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.compactSubText} numberOfLines={1}>
             Bags: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.secQty || 0}</Text> | {item.qty} Kg @ Rs. {Number(item.rate || 0).toFixed(2)}/Kg
             {item.addLess ? ` | Carriage: Rs. ${item.addLess}` : ''}
@@ -737,7 +747,9 @@ export default function WandaCustomerRegister() {
                 }}
               >
                 <Text style={styles.optionTitle}>{item.title}</Text>
-                <Text style={styles.optionSub}>{item.account}</Text>
+                <Text style={styles.optionSub}>
+                  {item.parentCustomerTitle ? `Sub of: ${item.parentCustomerTitle} • ` : ''}{item.account}
+                </Text>
               </TouchableOpacity>
             )}
           />

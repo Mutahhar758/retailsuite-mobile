@@ -33,6 +33,9 @@ export interface CustomerResponse {
   active: boolean;
   mediaId?: string;
   mediaUrl?: string;
+  parentCustomerAccountId?: string;
+  parentCustomerTitle?: string;
+  isSubAccount?: boolean;
   createdBy?: string;
   createdOn?: string;
   lastModifiedBy?: string;
@@ -55,6 +58,7 @@ export interface CustomerCreateRequest {
   emailAlert: boolean;
   active: boolean;
   mediaId?: string;
+  parentCustomerAccountId?: string;
   supplyItems?: CustomerSupplyItemDto[];
 }
 
@@ -73,6 +77,7 @@ export interface CustomerUpdateRequest {
   emailAlert: boolean;
   active: boolean;
   mediaId?: string;
+  parentCustomerAccountId?: string;
   supplyItems?: CustomerSupplyItemDto[];
 }
 
@@ -88,24 +93,38 @@ export const customerService = {
     return customers.find(c => c.account === account);
   },
 
-  async getSupplyItems(params?: { customerId?: string; itemId?: string }) {
+  async create(data: CustomerCreateRequest) {
+    const response = await api.post('/api/customers', data);
+    return response.data.body;
+  },
+
+  async update(account: string, data: CustomerUpdateRequest) {
+    const response = await api.put(`/api/customers/${encodeURIComponent(account)}`, data);
+    return response.data.body;
+  },
+
+  async delete(account: string) {
+    const response = await api.delete(`/api/customers/${encodeURIComponent(account)}`);
+    return response.data;
+  },
+
+  async getSupplyItems(params?: { customerAccountId?: string; customerId?: string; itemId?: string }) {
     const response = await api.get('/api/customers/supply-items', { params });
     return response.data.body as CustomerSupplyItemDto[];
   },
 
-  async create(data: CustomerCreateRequest) {
-    const response = await api.post('/api/customers', data);
-    return response.data.body as string;
-  },
-
-  async update(account: string, data: CustomerUpdateRequest) {
-    const response = await api.put(`/api/customers/${account}`, data);
-    return response.data.body as string;
-  },
-
   async getPresignedUploadUrl(fileName: string) {
-    const response = await api.post('/api/customers/presigned-upload-url', null, { params: { fileName } });
-    return response.data.body as { fileId: string; uploadUrl: string; expiresAt: string };
+    const response = await api.get('/api/customers/presigned-upload-url', { params: { fileName } });
+    return response.data.body as { fileId: string; uploadUrl: string };
+  },
+
+  async upsertSupplyItem(data: CustomerSupplyItemDto) {
+    const response = await api.post('/api/customers/supply-items', data);
+    return response.data.body;
+  },
+
+  async deleteSupplyItem(customerAccountId: string, itemId: string) {
+    const response = await api.delete(`/api/customers/${encodeURIComponent(customerAccountId)}/supply-items/${encodeURIComponent(itemId)}`);
+    return response.data;
   }
 };
-

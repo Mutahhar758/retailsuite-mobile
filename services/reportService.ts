@@ -103,10 +103,16 @@ export interface CustomerBillLine {
   secUnitTitle?: string;
   receiptDate?: string;
   receiptAmount?: number;
+  subAccountId?: string;
+  subAccountTitle?: string;
 }
 
 export interface CustomerBillResponse {
   lines: CustomerBillLine[];
+  linkedMainAccountId?: string;
+  linkedMainAccountTitle?: string;
+  linkedMainAccountBalance?: number;
+  isSubAccount?: boolean;
   summary: {
     previousBalance: number;
     payment: number;

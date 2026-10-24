@@ -11,7 +11,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
-  Image
+  Image,
+  Modal,
+  FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -21,7 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import { Theme } from '../../constants/theme';
 import { extractErrorMessage } from '../../services/api';
-import { customerService, CustomerCreateRequest, CustomerUpdateRequest } from '../../services/customerService';
+import { customerService, CustomerCreateRequest, CustomerUpdateRequest, CustomerResponse } from '../../services/customerService';
 
 export default function CustomerFormScreen() {
   const { account } = useLocalSearchParams<{ account: string }>();
@@ -48,7 +50,19 @@ export default function CustomerFormScreen() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Sub-Account State
+  const [isSubAccount, setIsSubAccount] = useState(false);
+  const [parentCustomerAccountId, setParentCustomerAccountId] = useState<string | null>(null);
+  const [parentCustomerTitle, setParentCustomerTitle] = useState('');
+  const [allCustomers, setAllCustomers] = useState<CustomerResponse[]>([]);
+  const [parentModalVisible, setParentModalVisible] = useState(false);
+  const [parentSearchQuery, setParentSearchQuery] = useState('');
+
   useEffect(() => {
+    customerService.getCustomers()
+      .then(res => setAllCustomers(res || []))
+      .catch(() => {});
+
     if (isEdit) {
       loadCustomerDetails();
     }
@@ -72,6 +86,9 @@ export default function CustomerFormScreen() {
         setEmailAlert(details.emailAlert ?? false);
         setMediaId(details.mediaId || null);
         setImageUrl(details.mediaUrl || null);
+        setIsSubAccount(Boolean(details.isSubAccount || details.parentCustomerAccountId));
+        setParentCustomerAccountId(details.parentCustomerAccountId || null);
+        setParentCustomerTitle(details.parentCustomerTitle || '');
       } else {
         Alert.alert('Error', 'Customer not found.');
         router.back();
@@ -146,17 +163,22 @@ export default function CustomerFormScreen() {
       return;
     }
 
+    if (isSubAccount && !parentCustomerAccountId) {
+      Alert.alert('Validation Error', 'Please select a Main Customer Account for this sub-account.');
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEdit) {
         const payload: CustomerUpdateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined
+          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined, parentCustomerAccountId: isSubAccount ? (parentCustomerAccountId || undefined) : undefined
         };
         await customerService.update(account!, payload);
         Alert.alert('Success', 'Customer updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       } else {
         const payload: CustomerCreateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined
+          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined, parentCustomerAccountId: isSubAccount ? (parentCustomerAccountId || undefined) : undefined
         };
         await customerService.create(payload);
         Alert.alert('Success', 'Customer created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
@@ -327,6 +349,42 @@ export default function CustomerFormScreen() {
             <Text style={styles.sectionTitle}>Preferences</Text>
             
             <View style={styles.switchRow}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.switchLabel}>Sub-Account of another Customer</Text>
+                <Text style={styles.switchDesc}>Dispatches recorded here; GL debt rolls up to main</Text>
+              </View>
+              <Switch
+                value={isSubAccount}
+                onValueChange={(val) => {
+                  setIsSubAccount(val);
+                  if (!val) {
+                    setParentCustomerAccountId(null);
+                    setParentCustomerTitle('');
+                  }
+                }}
+                trackColor={{ false: Theme.colors.border, true: Theme.colors.primary }}
+                thumbColor={Theme.colors.white}
+              />
+            </View>
+
+            {isSubAccount && (
+              <View style={[styles.inputGroup, { marginTop: Theme.spacing.sm }]}>
+                <Text style={styles.label}>Main Customer Account *</Text>
+                <TouchableOpacity
+                  style={styles.selectorBtn}
+                  onPress={() => setParentModalVisible(true)}
+                >
+                  <Text style={[styles.selectorText, !parentCustomerAccountId && styles.placeholder]}>
+                    {parentCustomerTitle
+                      ? `${parentCustomerTitle} (${parentCustomerAccountId})`
+                      : 'Select Main Customer...'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.switchRow}>
               <View>
                 <Text style={styles.switchLabel}>Active Account</Text>
                 <Text style={styles.switchDesc}>Allow transactions for this customer</Text>
@@ -378,6 +436,63 @@ export default function CustomerFormScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        <Modal visible={parentModalVisible} animationType="slide" transparent>
+          <SafeAreaView style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Main Customer Account</Text>
+              <TouchableOpacity onPress={() => setParentModalVisible(false)}>
+                <Ionicons name="close" size={24} color={Theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalSearchBox}>
+              <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.modalSearchInput}
+                placeholder="Search main customer by name or code..."
+                placeholderTextColor={Theme.colors.textSecondary}
+                value={parentSearchQuery}
+                onChangeText={setParentSearchQuery}
+                autoFocus
+              />
+            </View>
+
+            <FlatList
+              data={allCustomers
+                .filter(c => c.account !== account && !c.isSubAccount && !c.parentCustomerAccountId)
+                .filter(c => 
+                  c.title.toLowerCase().includes(parentSearchQuery.toLowerCase()) ||
+                  c.account.toLowerCase().includes(parentSearchQuery.toLowerCase())
+                )}
+              keyExtractor={item => item.account}
+              contentContainerStyle={{ padding: Theme.spacing.md }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalListItem,
+                    item.account === parentCustomerAccountId && styles.modalListItemSelected
+                  ]}
+                  onPress={() => {
+                    setParentCustomerAccountId(item.account);
+                    setParentCustomerTitle(item.title);
+                    setParentModalVisible(false);
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalItemTitle}>{item.title}</Text>
+                    <Text style={styles.modalItemSubtitle}>Account: {item.account}</Text>
+                  </View>
+                  {item.account === parentCustomerAccountId ? (
+                    <Ionicons name="checkmark-circle" size={20} color={Theme.colors.primary} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </SafeAreaView>
+        </Modal>
 
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -520,5 +635,80 @@ const styles = StyleSheet.create({
     color: Theme.colors.textSecondary,
     marginTop: 8,
     fontWeight: '600',
+  },
+  selectorBtn: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: Theme.radii.sm,
+    padding: Theme.spacing.sm,
+    backgroundColor: Theme.colors.background,
+    minHeight: 44,
+  },
+  selectorText: {
+    ...Theme.typography.body,
+    color: Theme.colors.text,
+  },
+  placeholder: {
+    color: Theme.colors.textSecondary,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Theme.colors.background,
+    padding: Theme.spacing.md,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
+  },
+  modalTitle: {
+    ...Theme.typography.h3,
+    color: Theme.colors.text,
+  },
+  modalSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.white,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: Theme.radii.sm,
+    paddingHorizontal: Theme.spacing.sm,
+    marginVertical: Theme.spacing.sm,
+    height: 40,
+  },
+  modalSearchInput: {
+    flex: 1,
+    ...Theme.typography.body,
+    color: Theme.colors.text,
+  },
+  modalListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Theme.spacing.md,
+    backgroundColor: Theme.colors.white,
+    borderRadius: Theme.radii.sm,
+    marginBottom: Theme.spacing.xs,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  modalListItemSelected: {
+    borderColor: Theme.colors.primary,
+    backgroundColor: Theme.colors.primary + '08',
+  },
+  modalItemTitle: {
+    ...Theme.typography.bodyMedium,
+    color: Theme.colors.text,
+    fontWeight: '600',
+  },
+  modalItemSubtitle: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    marginTop: 2,
   },
 });

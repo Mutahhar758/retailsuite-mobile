@@ -26,6 +26,8 @@ export interface SaleSupplyLine {
   supplyOrderMasterId?: number;
   customerId: string;
   customerTitle?: string;
+  subAccountId?: string;
+  subAccountTitle?: string;
   unit?: string;
   qty: number;
   rate: number;
