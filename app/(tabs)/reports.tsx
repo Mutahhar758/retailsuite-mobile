@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
 import { Theme } from '../../constants/theme';
@@ -206,6 +207,82 @@ export default function ReportsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<ReportCategory>('accounts');
   const [selectedReportId, setSelectedReportId] = useState<ReportType>('account_statement');
 
+  const routeParams = useLocalSearchParams<{
+    reportType?: string;
+    autoViewPdf?: string;
+    fromDate?: string;
+    toDate?: string;
+    account?: string;
+    accountId?: string;
+    controlAccountId?: string;
+    customer?: string;
+    customerId?: string;
+    item?: string;
+    itemId?: string;
+    t?: string;
+  }>();
+
+  const handledAutoPdfKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (routeParams.reportType) {
+      const raw = String(routeParams.reportType).toLowerCase().replace(/-/g, '_').trim();
+      const reportMap: Record<string, ReportType> = {
+        balance_sheet: 'balance_sheet',
+        trial_balance: 'trial_balance',
+        stock_balance: 'stock_balance',
+        item_ledger: 'item_ledger',
+        account_statement: 'account_statement',
+        account_statement_due: 'account_statement_due',
+        account_statement_with_due: 'account_statement_due',
+        account_balance: 'account_balance',
+        income_summary: 'income_summary',
+        customer_bill: 'customer_bill',
+        customer_recovery: 'customer_recovery',
+        customer_balance_recovery: 'customer_recovery',
+        milk_comparison: 'milk_comparison',
+        purchase_supply_comparison: 'milk_comparison',
+      };
+
+      const matchedId = reportMap[raw] || ALL_REPORTS.find(r => r.id === raw)?.id;
+      if (matchedId) {
+        const found = ALL_REPORTS.find(r => r.id === matchedId);
+        if (found) {
+          setSelectedReportId(found.id);
+          setSelectedCategory(found.category);
+        }
+      }
+    }
+
+    if (routeParams.fromDate) {
+      const parsed = dayjs(routeParams.fromDate);
+      if (parsed.isValid()) setFromDate(parsed.toDate());
+    }
+    if (routeParams.toDate) {
+      const parsed = dayjs(routeParams.toDate);
+      if (parsed.isValid()) setToDate(parsed.toDate());
+    }
+    if (routeParams.accountId || routeParams.account) {
+      setSelectedAccountId(routeParams.accountId || routeParams.account || '');
+    }
+    if (routeParams.customerId || routeParams.customer) {
+      setSelectedCustomerId(routeParams.customerId || routeParams.customer || '');
+    }
+    if (routeParams.itemId || routeParams.item) {
+      setSelectedItemId(routeParams.itemId || routeParams.item || '');
+    }
+  }, [
+    routeParams.reportType,
+    routeParams.fromDate,
+    routeParams.toDate,
+    routeParams.account,
+    routeParams.accountId,
+    routeParams.customer,
+    routeParams.customerId,
+    routeParams.item,
+    routeParams.itemId,
+  ]);
+
   const currentReport = useMemo(
     () => allowedReports.find((r) => r.id === selectedReportId) || ALL_REPORTS[0],
     [allowedReports, selectedReportId]
@@ -343,9 +420,40 @@ export default function ReportsScreen() {
   /**
    * Generates and opens the PDF directly into in-memory WebView modal
    */
-  const handleOpenPdfReport = async () => {
+  const handleOpenPdfReport = async (override?: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const fromStr = dayjs(fromDate).format('YYYY-MM-DD');
+    const isOverrideObj = override && typeof override === 'object' && !('nativeEvent' in override);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const activeReportId: ReportType = (isOverrideObj && override.reportId) || selectedReportId;
+    const activeFrom: Date = (isOverrideObj && override.from) || fromDate;
+    const activeTo: Date = (isOverrideObj && override.to) || toDate;
+
+    // Entity fallbacks so it never fails if specific account is not explicitly spoken
+    const activeAccountId: string =
+      (isOverrideObj && override.accountId) ||
+      selectedAccountId ||
+      (detailAccounts.length > 0 ? detailAccounts[0].account : '');
+
+    const activeControlAccountId: string =
+      (isOverrideObj && override.controlAccountId) ||
+      selectedControlAccountId ||
+      (controlAccounts.length > 0 ? controlAccounts[0].account : '');
+
+    const activeCustomerId: string =
+      (isOverrideObj && override.customerId) ||
+      selectedCustomerId ||
+      (customerAccounts.length > 0 ? customerAccounts[0].account : '');
+
+    const activeItemId: string =
+      (isOverrideObj && override.itemId) ||
+      selectedItemId ||
+      (items.length > 0 ? items[0].id : '');
+
+    const activeCategoryCode: string =
+      (isOverrideObj && override.categoryCode) || selectedCategoryCode;
+
+    const fromStr = dayjs(activeFrom).format('YYYY-MM-DD');
     const toStr = dayjs(toDate).format('YYYY-MM-DD');
 
     setPdfLoading(true);
@@ -354,37 +462,38 @@ export default function ReportsScreen() {
 
     try {
       let base64 = '';
-      let filename = `${currentReport.shortTitle.replace(/\s+/g, '_')}_${dayjs().format('YYYYMMDD')}.pdf`;
+      const repMeta = ALL_REPORTS.find((r) => r.id === activeReportId) || currentReport;
+      let filename = `${repMeta.shortTitle.replace(/\s+/g, '_')}_${dayjs().format('YYYYMMDD')}.pdf`;
 
-      switch (selectedReportId) {
+      switch (activeReportId) {
         case 'account_statement':
-          if (!selectedAccountId) throw new Error('Please select an account.');
-          filename = `AccountStatement_${selectedAccountId}_${fromStr}_${toStr}.pdf`;
+          if (!activeAccountId) throw new Error('Please select an account.');
+          filename = `AccountStatement_${activeAccountId}_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getAccountStatementPdf({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedAccountId,
+            account: activeAccountId,
             dateBasis,
           });
           break;
 
         case 'account_statement_due':
-          if (!selectedAccountId) throw new Error('Please select an account.');
+          if (!activeAccountId) throw new Error('Please select an account.');
           filename = `AccountStatementWithDue_${selectedAccountId}_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getAccountStatementWithDuePdf({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedAccountId,
+            account: activeAccountId,
             dateBasis,
           });
           break;
 
         case 'account_balance':
-          if (!selectedControlAccountId) throw new Error('Please select a control head account.');
-          filename = `AccountBalance_${selectedControlAccountId}_${toStr}.pdf`;
+          if (!activeControlAccountId) throw new Error('Please select a control head account.');
+          filename = `AccountBalance_${activeControlAccountId}_${toStr}.pdf`;
           base64 = await reportService.getBalanceDetailPdf({
             toDate: toStr,
-            account: selectedControlAccountId,
+            account: activeControlAccountId,
           });
           break;
 
@@ -416,30 +525,30 @@ export default function ReportsScreen() {
           base64 = await reportService.getStockBalancePdf({
             fromDate: fromStr,
             toDate: toStr,
-            catagory: selectedCategoryCode || undefined,
+            catagory: activeCategoryCode || undefined,
             showStockValue,
           });
           break;
 
         case 'item_ledger':
-          if (!selectedItemId) throw new Error('Please select a product item.');
-          filename = `StockLedger_${selectedItemId}_${fromStr}_${toStr}.pdf`;
+          if (!activeItemId) throw new Error('Please select a product item.');
+          filename = `StockLedger_${activeItemId}_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getStockLedgerPdf({
             fromDate: fromStr,
             toDate: toStr,
-            fkItem: selectedItemId,
+            fkItem: activeItemId,
             showCostPrice,
           });
           break;
 
         case 'customer_bill':
-          if (!selectedCustomerId) throw new Error('Please select a customer.');
-          filename = `CustomerBill_${selectedCustomerId}_${fromStr}_${toStr}.pdf`;
+          if (!activeCustomerId) throw new Error('Please select a customer.');
+          filename = `CustomerBill_${activeCustomerId}_${fromStr}_${toStr}.pdf`;
           // Thermal View format by default
           base64 = await reportService.getCustomerBillPdf({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedCustomerId,
+            account: activeCustomerId,
             dateBasis,
             layout: customerBillLayout,
           });
@@ -450,7 +559,7 @@ export default function ReportsScreen() {
           base64 = await reportService.getCustomerBalanceRecoveryPdf({
             fromDate: fromStr,
             toDate: toStr,
-            customerAccountId: selectedCustomerId || undefined,
+            customerAccountId: activeCustomerId || undefined,
             dateBasis,
             balanceFilter,
           });
@@ -461,7 +570,7 @@ export default function ReportsScreen() {
           base64 = await reportService.getPurchaseSupplyComparisonPdf({
             fromDate: fromStr,
             toDate: toStr,
-            itemId: selectedItemId || undefined,
+            itemId: activeItemId || undefined,
           });
           break;
       }
@@ -479,6 +588,78 @@ export default function ReportsScreen() {
     }
   };
 
+  // Auto-launch PDF if directed by AI Assistant or route parameter
+  useEffect(() => {
+    if (initialLoading) return;
+
+    if (routeParams.autoViewPdf === 'true' || routeParams.reportType) {
+      const autoKey = `${routeParams.reportType}_${routeParams.fromDate}_${routeParams.toDate}_${routeParams.account || routeParams.accountId}_${routeParams.autoViewPdf}_${routeParams.t || ''}`;
+      if (handledAutoPdfKeyRef.current !== autoKey) {
+        handledAutoPdfKeyRef.current = autoKey;
+
+        const raw = String(routeParams.reportType || '').toLowerCase().replace(/-/g, '_').trim();
+        const repMap: Record<string, ReportType> = {
+          balance_sheet: 'balance_sheet',
+          trial_balance: 'trial_balance',
+          stock_balance: 'stock_balance',
+          item_ledger: 'item_ledger',
+          account_statement: 'account_statement',
+          account_statement_due: 'account_statement_due',
+          account_statement_with_due: 'account_statement_due',
+          account_balance: 'account_balance',
+          income_summary: 'income_summary',
+          customer_bill: 'customer_bill',
+          customer_recovery: 'customer_recovery',
+          customer_balance_recovery: 'customer_recovery',
+          milk_comparison: 'milk_comparison',
+          purchase_supply_comparison: 'milk_comparison',
+        };
+
+        const targetReportId = repMap[raw] || selectedReportId;
+        const targetFrom = routeParams.fromDate && dayjs(routeParams.fromDate).isValid() ? dayjs(routeParams.fromDate).toDate() : fromDate;
+        const targetTo = routeParams.toDate && dayjs(routeParams.toDate).isValid() ? dayjs(routeParams.toDate).toDate() : toDate;
+        const targetAcc = routeParams.accountId || routeParams.account || selectedAccountId;
+        const targetControlAcc = routeParams.controlAccountId || selectedControlAccountId;
+        const targetCust = routeParams.customerId || routeParams.customer || selectedCustomerId;
+        const targetItem = routeParams.itemId || routeParams.item || selectedItemId;
+
+        setSelectedReportId(targetReportId);
+        const timer = setTimeout(() => {
+          handleOpenPdfReport({
+            reportId: targetReportId,
+            from: targetFrom,
+            to: targetTo,
+            accountId: targetAcc,
+            controlAccountId: targetControlAcc,
+            customerId: targetCust,
+            itemId: targetItem,
+          });
+        }, 150);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [
+    initialLoading,
+    routeParams.autoViewPdf,
+    routeParams.reportType,
+    routeParams.fromDate,
+    routeParams.toDate,
+    routeParams.account,
+    routeParams.accountId,
+    routeParams.controlAccountId,
+    routeParams.customer,
+    routeParams.customerId,
+    routeParams.item,
+    routeParams.itemId,
+    routeParams.t,
+    selectedAccountId,
+    selectedControlAccountId,
+    selectedCustomerId,
+    selectedItemId,
+    detailAccounts,
+  ]);
+
   /**
    * Fetches raw JSON data and presents instant interactive metrics on screen
    */
@@ -486,6 +667,12 @@ export default function ReportsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const fromStr = dayjs(fromDate).format('YYYY-MM-DD');
     const toStr = dayjs(toDate).format('YYYY-MM-DD');
+
+    const activeAccountId = selectedAccountId || (detailAccounts.length > 0 ? detailAccounts[0].account : '');
+    const activeControlAccountId = selectedControlAccountId || (controlAccounts.length > 0 ? controlAccounts[0].account : '');
+    const activeCustomerId = selectedCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
+    const activeItemId = selectedItemId || (items.length > 0 ? items[0].id : '');
+    const activeCategoryCode = selectedCategoryCode;
 
     setDataLoading(true);
     setReportData(null);
@@ -496,30 +683,30 @@ export default function ReportsScreen() {
 
       switch (selectedReportId) {
         case 'account_statement':
-          if (!selectedAccountId) throw new Error('Please select an account.');
+          if (!activeAccountId) throw new Error('Please select an account.');
           data = await reportService.getAccountStatement({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedAccountId,
+            account: activeAccountId,
             dateBasis,
           });
           break;
 
         case 'account_statement_due':
-          if (!selectedAccountId) throw new Error('Please select an account.');
+          if (!activeAccountId) throw new Error('Please select an account.');
           data = await reportService.getAccountStatementWithDue({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedAccountId,
+            account: activeAccountId,
             dateBasis,
           });
           break;
 
         case 'account_balance':
-          if (!selectedControlAccountId) throw new Error('Please select a control head account.');
+          if (!activeControlAccountId) throw new Error('Please select a control head account.');
           data = await reportService.getBalanceDetail({
             toDate: toStr,
-            account: selectedControlAccountId,
+            account: activeControlAccountId,
           });
           break;
 
@@ -547,28 +734,28 @@ export default function ReportsScreen() {
           data = await reportService.getStockBalance({
             fromDate: fromStr,
             toDate: toStr,
-            catagory: selectedCategoryCode || undefined,
+            catagory: activeCategoryCode || undefined,
             showStockValue,
             filter: lowStockOnly ? 'LowStock' : 'All',
           });
           break;
 
         case 'item_ledger':
-          if (!selectedItemId) throw new Error('Please select a product item.');
+          if (!activeItemId) throw new Error('Please select a product item.');
           data = await reportService.getStockLedger({
             fromDate: fromStr,
             toDate: toStr,
-            fkItem: selectedItemId,
+            fkItem: activeItemId,
             showCostPrice,
           });
           break;
 
         case 'customer_bill':
-          if (!selectedCustomerId) throw new Error('Please select a customer.');
+          if (!activeCustomerId) throw new Error('Please select a customer.');
           data = await reportService.getCustomerBill({
             fromDate: fromStr,
             toDate: toStr,
-            account: selectedCustomerId,
+            account: activeCustomerId,
             dateBasis,
           });
           break;
@@ -577,7 +764,7 @@ export default function ReportsScreen() {
           data = await reportService.getCustomerBalanceRecovery({
             fromDate: fromStr,
             toDate: toStr,
-            customerAccountId: selectedCustomerId || undefined,
+            customerAccountId: activeCustomerId || undefined,
             dateBasis,
             balanceFilter,
           });
@@ -587,7 +774,7 @@ export default function ReportsScreen() {
           data = await reportService.getPurchaseSupplyComparison({
             fromDate: fromStr,
             toDate: toStr,
-            itemId: selectedItemId || undefined,
+            itemId: activeItemId || undefined,
           });
           break;
       }

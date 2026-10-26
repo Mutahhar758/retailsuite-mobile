@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Appearance } from 'react-native';
 import 'react-native-reanimated';
 import { useAuthStore } from '../store/authStore';
+import { FloatingAiOrb } from '../components/ai/FloatingAiOrb';
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -32,11 +33,11 @@ export default function RootLayout() {
     }
   }, [_hasHydrated, isAuthenticated]);
 
+  const inAuthGroup = segments[0] === '(auth)';
+
   useEffect(() => {
     if (!navigationState?.key) return;
     if (!_hasHydrated) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
 
     // Defer the navigation to the next tick to ensure the root layout has finished mounting.
     // This resolves the 'Attempted to navigate before mounting the Root Layout component' error
@@ -50,7 +51,9 @@ export default function RootLayout() {
     }, 0);
 
     return () => clearTimeout(timeout);
-  }, [isAuthenticated, _hasHydrated, segments, navigationState?.key]);
+  }, [isAuthenticated, _hasHydrated, inAuthGroup, navigationState?.key]);
+
+  const showFloatingOrb = _hasHydrated && isAuthenticated && !inAuthGroup;
 
   return (
     <>
@@ -59,8 +62,8 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
       </Stack>
+      {showFloatingOrb && <FloatingAiOrb />}
       <StatusBar style="dark" />
     </>
   );
 }
-

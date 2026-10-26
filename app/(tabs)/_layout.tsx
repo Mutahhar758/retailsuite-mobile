@@ -26,59 +26,61 @@ export default function TabLayout() {
   const showSetup = hasPermission('View', 'Customers') || hasPermission('View', 'Suppliers') || hasPermission('View', 'InventoryItems');
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: Theme.colors.primary,
-        tabBarInactiveTintColor: Theme.colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: Theme.colors.white,
-          borderTopColor: Theme.colors.border,
-          height: Platform.OS === 'android' ? (60 + insets.bottom) : (85),
-          paddingBottom: Platform.OS === 'android' ? (insets.bottom > 0 ? insets.bottom : 8) : insets.bottom,
-          paddingTop: 10,
-          ...Theme.shadows.md,
-        },
-      }}>
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="data-entry"
-        options={{
-          title: 'Data Entry',
-          href: showDataEntry ? undefined : null as any,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="create-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="reports"
-        options={{
-          title: 'Reports',
-          href: showReports ? undefined : null as any,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="document-text-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="setup"
-        options={{
-          title: 'Setup',
-          href: showSetup ? undefined : null as any,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+    <>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: Theme.colors.primary,
+          tabBarInactiveTintColor: Theme.colors.textSecondary,
+          tabBarStyle: {
+            backgroundColor: Theme.colors.white,
+            borderTopColor: Theme.colors.border,
+            height: Platform.OS === 'android' ? (60 + insets.bottom) : (85),
+            paddingBottom: Platform.OS === 'android' ? (insets.bottom > 0 ? insets.bottom : 8) : insets.bottom,
+            paddingTop: 10,
+            ...Theme.shadows.md,
+          },
+        }}>
+        <Tabs.Screen
+          name="dashboard"
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="data-entry"
+          options={{
+            title: 'Data Entry',
+            href: showDataEntry ? undefined : null as any,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="create-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="reports"
+          options={{
+            title: 'Reports',
+            href: showReports ? undefined : null as any,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="document-text-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="setup"
+          options={{
+            title: 'Setup',
+            href: showSetup ? undefined : null as any,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="settings-outline" size={size} color={color} />
+            ),
+          }}
+        />
+      </Tabs>
+    </>
   );
 }

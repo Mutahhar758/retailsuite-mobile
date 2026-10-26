@@ -26,7 +26,7 @@ import { narrationService, NarrationDto } from '../../services/narrationService'
 import dayjs from 'dayjs';
 
 export default function ReceiptFormScreen() {
-  const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
+  const { voucherNo, mode, draftData } = useLocalSearchParams<{ voucherNo: string; mode?: string; draftData?: string }>();
   const router = useRouter();
   const isEdit = voucherNo && voucherNo !== 'new' && mode !== 'copy';
 
@@ -79,6 +79,34 @@ export default function ReceiptFormScreen() {
       if (isEdit) {
         await loadVoucherDetails();
       } else {
+        if (draftData) {
+          try {
+            const parsed = typeof draftData === 'string' ? JSON.parse(draftData) : draftData;
+            if (parsed.cashBankAccountId || parsed.cashAccount) {
+              setCashBankAccount(parsed.cashBankAccountId || parsed.cashAccount);
+            }
+            if (parsed.date) {
+              const d = new Date(parsed.date);
+              if (!isNaN(d.getTime())) setDate(d);
+            }
+            if (parsed.amount || parsed.accountId || parsed.customerId || parsed.account) {
+              const accId = parsed.accountId || parsed.customerId || parsed.account || '';
+              const amt = Number(parsed.amount) || 0;
+              setLines([
+                {
+                  seq: 1,
+                  account: accId,
+                  amount: amt,
+                  checkNum: '',
+                  checkDate: '',
+                  remarks: parsed.remarks || ''
+                }
+              ]);
+            }
+          } catch (e) {
+            console.warn('Failed to parse draftData', e);
+          }
+        }
         setLoading(false);
       }
     } catch (error) {

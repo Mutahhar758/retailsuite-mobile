@@ -18,7 +18,8 @@
       },
       "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
-      "package": "com.mutahhar11.RetailMobileApp"
+      "package": "com.mutahhar11.RetailMobileApp",
+      "permissions": ["android.permission.RECORD_AUDIO"]
     },
     "web": {
       "output": "static",
@@ -26,6 +27,13 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "RetailSuite requires microphone access for voice assistant.",
+          "speechRecognitionPermission": "RetailSuite requires speech recognition to transcribe your commands."
+        }
+      ],
       [
         "expo-splash-screen",
         {

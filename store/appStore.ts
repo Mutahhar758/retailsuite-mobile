@@ -27,9 +27,13 @@ export interface OrganizationLicense {
   hasVariablePackFeature?: boolean;
 }
 
+export type VoiceLanguageMode = 'en-PK' | 'ur-PK' | 'auto';
+
 interface AppState {
   licenses: OrganizationLicense[];
   currentTenantIdentifier: string | null;
+  voiceLanguage: VoiceLanguageMode;
+  setVoiceLanguage: (lang: VoiceLanguageMode) => void;
   addLicense: (license: OrganizationLicense) => void;
   setCurrentTenant: (tenantId: string) => void;
   removeLicense: (licenseKey: string) => void;
@@ -42,6 +46,8 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       licenses: [],
       currentTenantIdentifier: null,
+      voiceLanguage: 'en-PK', // Default to Pakistani English / accent
+      setVoiceLanguage: (lang) => set({ voiceLanguage: lang }),
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
       
