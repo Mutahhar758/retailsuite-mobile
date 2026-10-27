@@ -15,6 +15,7 @@ export interface AiChatMessage {
 
 export interface AiAssistantRequest {
   prompt: string;
+  chatId?: string;
   currentRoute?: string;
   activeFilters?: Record<string, string>;
   history?: AiChatMessage[];
@@ -22,6 +23,7 @@ export interface AiAssistantRequest {
 
 export interface AiAssistantResponse {
   replyText: string;
+  chatId?: string;
   actionType: AiActionType;
   targetRoute?: string;
   actionPayload?: Record<string, any>;

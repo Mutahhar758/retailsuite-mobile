@@ -30,11 +30,16 @@ interface AiAssistantModalProps {
   initialPrompt?: string;
 }
 
+const generateChatId = () => {
+  return 'chat_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+};
+
 export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
   visible,
   onClose,
   initialPrompt,
 }) => {
+  const [chatId, setChatId] = useState<string>(generateChatId);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [voiceMuted, setVoiceMuted] = useState(false);
@@ -61,6 +66,22 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     }
   };
 
+  const handleNewChat = () => {
+    stopListening(false);
+    stopSpeaking();
+    hasDispatchedThisHoldRef.current = false;
+    isHoldingRef.current = false;
+    setInputText('');
+    setChatId(generateChatId());
+    setMessages([
+      {
+        role: 'assistant',
+        content:
+          'Hello! I am your RetailSuite Voice & Navigation AI. You can speak in Urdu, Roman Urdu, or English to navigate reports or draft vouchers.',
+      },
+    ]);
+  };
+
   const holdStartTimeRef = useRef<number>(0);
   const isHoldingRef = useRef(false);
   const hasDispatchedThisHoldRef = useRef(false);
@@ -83,9 +104,14 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
     try {
       const response = await aiAssistantService.chat({
         prompt: trimmed,
+        chatId: chatId,
         currentRoute: pathname,
         history: messages,
       });
+
+      if (response.chatId && response.chatId !== chatId) {
+        setChatId(response.chatId);
+      }
 
       const assistantMsg: AiChatMessage = {
         role: 'assistant',
@@ -370,6 +396,15 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   ? '🇵🇰 اردو'
                   : '🌐 Auto'}
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleNewChat}
+              style={styles.iconButton}
+              activeOpacity={0.7}
+              accessibilityLabel="Start New Chat"
+            >
+              <Ionicons name="create-outline" size={22} color={Theme.colors.primary} />
             </TouchableOpacity>
 
             <TouchableOpacity
