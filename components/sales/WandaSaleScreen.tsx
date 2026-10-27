@@ -199,25 +199,15 @@ export function WandaSaleScreen() {
 
       if (field === 'qty') {
         kgQty = numVal;
-        if (bagQty > 0) {
-          packQty = round(kgQty / bagQty, 2);
-        } else if (packQty > 0) {
-          bagQty = round(kgQty / packQty, 2);
-        }
+        const effectivePack = packQty > 0 ? packQty : (packing > 0 ? packing : 0);
+        bagQty = effectivePack > 0 ? round(kgQty / effectivePack, 2) : 0;
       } else if (field === 'secQty') {
         bagQty = numVal;
-        if (packQty > 0) {
-          kgQty = round(bagQty * packQty, 2);
-        } else if (kgQty > 0) {
-          packQty = round(kgQty / bagQty, 2);
-        }
+        const effectivePack = packQty > 0 ? packQty : (packing > 0 ? packing : 0);
+        kgQty = round(bagQty * effectivePack, 2);
       } else if (field === 'packQty') {
         packQty = numVal;
-        if (bagQty > 0) {
-          kgQty = round(bagQty * packQty, 2);
-        } else if (kgQty > 0) {
-          bagQty = round(kgQty / packQty, 2);
-        }
+        bagQty = packQty > 0 ? round(kgQty / packQty, 2) : 0;
       } else if (field === 'packing') {
         packing = numVal;
         if (packing > 0) {
