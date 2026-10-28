@@ -21,28 +21,46 @@ export default function PaymentsListScreen() {
   const [payments, setPayments] = useState<PaymentDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchPayments = useCallback(async () => {
+  const PAGE_SIZE = 20;
+
+  const fetchPayments = useCallback(async (pageNumber = 1) => {
     try {
-      const data = await paymentService.getList();
-      setPayments(data);
+      const result = await paymentService.getList({ pageNumber, pageSize: PAGE_SIZE });
+      setPayments(prev => {
+        if (pageNumber === 1) return result.data;
+        const seen = new Set(prev.map(p => p.voucherNo));
+        return [...prev, ...result.data.filter(p => !seen.has(p.voucherNo))];
+      });
+      setPage(pageNumber);
+      setHasMore(pageNumber < result.totalPages);
     } catch (error) {
       console.error('Failed to fetch payments', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchPayments();
+      fetchPayments(1);
     }, [fetchPayments])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchPayments();
+    fetchPayments(1);
+  };
+
+  const onEndReached = () => {
+    if (loading || refreshing || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchPayments(page + 1);
   };
 
   const renderItem = ({ item, index }: { item: PaymentDto; index: number }) => (
@@ -94,6 +112,9 @@ export default function PaymentsListScreen() {
           keyExtractor={(item) => item.voucherNo}
           renderItem={renderItem}
           contentContainerStyle={styles.listContainer}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={Theme.colors.primary} style={{ marginVertical: 16 }} /> : null}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
           }
@@ -167,7 +188,7 @@ const styles = StyleSheet.create({
   },
   amount: {
     ...Theme.typography.h3,
-    color: Theme.colors.danger, // payment is out, red is better
+    color: Theme.colors.danger,
   },
   cardFooter: {
     flexDirection: 'row',

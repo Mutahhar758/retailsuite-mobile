@@ -64,9 +64,18 @@ export const paymentService = {
     cashBankAccount?: string;
     account?: string;
     narration?: string;
+    voucherNo?: string;
+    pageNumber?: number;
+    pageSize?: number;
   }) {
-    const response = await api.get('/api/payments', { params });
-    return response.data.body as PaymentDto[];
+    const response = await api.get('/api/payments/paged', { params });
+    const body = response.data.body;
+    return {
+      data: (body?.data ?? []) as PaymentDto[],
+      totalCount: (body?.metadata?.totalCount ?? 0) as number,
+      currentPage: (body?.metadata?.currentPage ?? 1) as number,
+      totalPages: (body?.metadata?.totalPages ?? 1) as number,
+    };
   },
 
   async getDetail(voucherNo: string, cashBankAccount?: string) {
