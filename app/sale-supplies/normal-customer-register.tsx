@@ -297,8 +297,8 @@ export default function NormalCustomerRegister() {
         itemId: addItemId
       });
 
-      if (existingVouchers.length > 0) {
-        const targetVoucher = existingVouchers[0];
+      if (existingVouchers.data?.length > 0) {
+        const targetVoucher = existingVouchers.data[0];
         const details = await saleSupplyService.getDetail(targetVoucher.voucherNo);
         const nextSeq = details.length > 0 ? Math.max(...details.map(d => d.seq)) + 1 : 1;
 

@@ -130,11 +130,18 @@ export const saleSupplyService = {
     itemId?: string;
     voucherNo?: string;
     searchTerm?: string;
+    pageNumber?: number;
+    pageSize?: number;
   }) {
-    const response = await api.get('/api/SaleSupplies', { params });
-    return response.data.body as SaleSupply[];
+    const response = await api.get('/api/SaleSupplies/paged', { params });
+    const body = response.data.body;
+    return {
+      data: (body?.data ?? []) as SaleSupply[],
+      totalCount: (body?.metadata?.totalCount ?? 0) as number,
+      currentPage: (body?.metadata?.currentPage ?? 1) as number,
+      totalPages: (body?.metadata?.totalPages ?? 1) as number,
+    };
   },
-
   async getDetail(voucherNo: string) {
     const response = await api.get(`/api/SaleSupplies/${voucherNo}`);
     return response.data.body as SaleSupplyLine[];

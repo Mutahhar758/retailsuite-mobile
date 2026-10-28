@@ -18,30 +18,47 @@ export default function SaleSuppliesListScreen() {
   const [supplies, setSupplies] = useState<SaleSupply[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchSupplies = useCallback(async () => {
+  const PAGE_SIZE = 20;
+
+  const fetchSupplies = useCallback(async (pageNumber = 1) => {
     try {
-      const data = await saleSupplyService.getList();
-      setSupplies(data);
+      const result = await saleSupplyService.getList({ pageNumber, pageSize: PAGE_SIZE });
+      setSupplies(prev => {
+        if (pageNumber === 1) return result.data;
+        const seen = new Set(prev.map(r => r.voucherNo));
+        return [...prev, ...result.data.filter(r => !seen.has(r.voucherNo))];
+      });
+      setPage(pageNumber);
+      setHasMore(pageNumber < result.totalPages);
     } catch (error) {
       console.error('Failed to fetch sale supplies', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchSupplies();
+      fetchSupplies(1);
     }, [fetchSupplies])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchSupplies();
+    fetchSupplies(1);
   };
 
+  const onEndReached = () => {
+    if (loading || refreshing || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchSupplies(page + 1);
+  };
   const renderItem = ({ item, index }: { item: SaleSupply; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 50).duration(400)}>
       <TouchableOpacity 
@@ -110,6 +127,9 @@ export default function SaleSuppliesListScreen() {
           data={supplies}
           keyExtractor={(item) => item.voucherNo}
           renderItem={renderItem}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Theme.colors.primary} /> : null}
           contentContainerStyle={styles.listContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
