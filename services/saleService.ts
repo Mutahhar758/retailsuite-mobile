@@ -84,9 +84,17 @@ export const saleService = {
     account?: string;
     voucherNo?: string;
     searchTerm?: string;
+    pageNumber?: number;
+    pageSize?: number;
   }) {
-    const response = await api.get('/api/sales', { params });
-    return response.data.body as SaleDto[];
+    const response = await api.get('/api/sales/paged', { params });
+    const body = response.data.body;
+    return {
+      data: (body?.data ?? []) as SaleDto[],
+      totalCount: (body?.metadata?.totalCount ?? 0) as number,
+      currentPage: (body?.metadata?.currentPage ?? 1) as number,
+      totalPages: (body?.metadata?.totalPages ?? 1) as number,
+    };
   },
 
   async getDetail(voucherNo: string) {

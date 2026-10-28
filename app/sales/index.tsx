@@ -22,29 +22,47 @@ export default function SalesListScreen() {
   const [sales, setSales] = useState<SaleDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchSales = useCallback(async () => {
+  const PAGE_SIZE = 20;
+
+  const fetchSales = useCallback(async (pageNumber = 1) => {
     try {
-      const data = await saleService.getList();
-      setSales(data || []);
+      const result = await saleService.getList({ pageNumber, pageSize: PAGE_SIZE });
+      setSales(prev => {
+        if (pageNumber === 1) return result.data;
+        const seen = new Set(prev.map(r => r.voucherNo));
+        return [...prev, ...result.data.filter(r => !seen.has(r.voucherNo))];
+      });
+      setPage(pageNumber);
+      setHasMore(pageNumber < result.totalPages);
     } catch (error) {
       console.error('Failed to fetch sales', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchSales();
+      fetchSales(1);
     }, [fetchSales])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchSales();
+    fetchSales(1);
+  };
+
+  const onEndReached = () => {
+    if (loading || refreshing || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchSales(page + 1);
   };
 
   const filteredSales = useMemo(() => {
@@ -139,6 +157,15 @@ export default function SalesListScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
           }
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={{ paddingVertical: 16 }}>
+                <ActivityIndicator size="small" color={Theme.colors.primary} />
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="receipt-outline" size={64} color={Theme.colors.border} />
@@ -201,43 +228,42 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.white,
     borderRadius: Theme.radii.lg,
     padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.sm,
+    marginBottom: Theme.spacing.md,
     ...Theme.shadows.sm,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.xs,
+    marginBottom: Theme.spacing.sm,
   },
   voucherBadge: {
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 8,
+    backgroundColor: 'rgba(108, 99, 255, 0.1)',
+    paddingHorizontal: Theme.spacing.sm,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: Theme.radii.sm,
   },
   voucherNo: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.primary,
+    ...Theme.typography.caption,
     fontWeight: '700',
+    color: Theme.colors.primary,
   },
   date: {
-    ...Theme.typography.small,
+    ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
   },
   cardBody: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 4,
     marginBottom: Theme.spacing.sm,
   },
   account: {
     ...Theme.typography.body,
+    fontWeight: '600',
     color: Theme.colors.text,
     flex: 1,
     marginRight: Theme.spacing.sm,
-    fontWeight: '600',
   },
   amount: {
     ...Theme.typography.h3,
@@ -248,8 +274,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: Theme.colors.background,
-    paddingTop: Theme.spacing.xs,
+    borderTopColor: Theme.colors.border,
+    paddingTop: Theme.spacing.sm,
   },
   infoRow: {
     flexDirection: 'row',
@@ -261,14 +287,13 @@ const styles = StyleSheet.create({
   },
   infoText: {
     ...Theme.typography.caption,
+    fontSize: 10,
     color: Theme.colors.textSecondary,
-    fontSize: 11,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Theme.spacing.xxl,
-    marginTop: Theme.spacing.xxl,
+    paddingVertical: 60,
   },
   emptyText: {
     ...Theme.typography.body,
@@ -277,14 +302,14 @@ const styles = StyleSheet.create({
   },
   fabContainer: {
     position: 'absolute',
-    bottom: Theme.spacing.lg,
-    right: Theme.spacing.lg,
+    bottom: Theme.spacing.xl,
+    right: Theme.spacing.xl,
   },
   fab: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: Theme.colors.primary,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     ...Theme.shadows.md,

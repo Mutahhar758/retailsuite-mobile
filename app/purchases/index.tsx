@@ -21,28 +21,46 @@ export default function PurchasesListScreen() {
   const [purchases, setPurchases] = useState<PurchaseDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchPurchases = useCallback(async () => {
+  const PAGE_SIZE = 20;
+
+  const fetchPurchases = useCallback(async (pageNumber = 1) => {
     try {
-      const data = await purchaseService.getList();
-      setPurchases(data);
+      const result = await purchaseService.getList({ pageNumber, pageSize: PAGE_SIZE });
+      setPurchases(prev => {
+        if (pageNumber === 1) return result.data;
+        const seen = new Set(prev.map(r => r.voucherNo));
+        return [...prev, ...result.data.filter(r => !seen.has(r.voucherNo))];
+      });
+      setPage(pageNumber);
+      setHasMore(pageNumber < result.totalPages);
     } catch (error) {
       console.error('Failed to fetch purchases', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchPurchases();
+      fetchPurchases(1);
     }, [fetchPurchases])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchPurchases();
+    fetchPurchases(1);
+  };
+
+  const onEndReached = () => {
+    if (loading || refreshing || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetchPurchases(page + 1);
   };
 
   const renderItem = ({ item, index }: { item: PurchaseDto; index: number }) => (
@@ -108,6 +126,15 @@ export default function PurchasesListScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
           }
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={{ paddingVertical: 16 }}>
+                <ActivityIndicator size="small" color={Theme.colors.primary} />
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="cart-outline" size={64} color={Theme.colors.border} />
@@ -147,21 +174,22 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.white,
     borderRadius: Theme.radii.lg,
     padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.sm,
+    marginBottom: Theme.spacing.md,
     ...Theme.shadows.sm,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: Theme.spacing.xs,
+    alignItems: 'center',
+    marginBottom: Theme.spacing.sm,
   },
   voucherNo: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.primary,
+    ...Theme.typography.caption,
     fontWeight: '700',
+    color: Theme.colors.primary,
   },
   date: {
-    ...Theme.typography.small,
+    ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
   },
   cardBody: {
@@ -172,10 +200,10 @@ const styles = StyleSheet.create({
   },
   account: {
     ...Theme.typography.body,
+    fontWeight: '600',
     color: Theme.colors.text,
     flex: 1,
     marginRight: Theme.spacing.sm,
-    fontWeight: '600',
   },
   amount: {
     ...Theme.typography.h3,
@@ -186,8 +214,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: Theme.colors.background,
-    paddingTop: Theme.spacing.xs,
+    borderTopColor: Theme.colors.border,
+    paddingTop: Theme.spacing.sm,
   },
   infoRow: {
     flexDirection: 'row',
@@ -199,14 +227,13 @@ const styles = StyleSheet.create({
   },
   infoText: {
     ...Theme.typography.caption,
+    fontSize: 10,
     color: Theme.colors.textSecondary,
-    fontSize: 11,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Theme.spacing.xxl,
-    marginTop: Theme.spacing.xxl,
+    paddingVertical: 60,
   },
   emptyText: {
     ...Theme.typography.body,
@@ -215,14 +242,14 @@ const styles = StyleSheet.create({
   },
   fabContainer: {
     position: 'absolute',
-    bottom: Theme.spacing.lg,
-    right: Theme.spacing.lg,
+    bottom: Theme.spacing.xl,
+    right: Theme.spacing.xl,
   },
   fab: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: Theme.colors.primary,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     ...Theme.shadows.md,

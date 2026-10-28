@@ -81,9 +81,18 @@ export const purchaseService = {
     toDate?: string;
     account?: string;
     voucherNo?: string;
+    searchTerm?: string;
+    pageNumber?: number;
+    pageSize?: number;
   }) {
-    const response = await api.get('/api/purchases', { params });
-    return response.data.body as PurchaseDto[];
+    const response = await api.get('/api/purchases/paged', { params });
+    const body = response.data.body;
+    return {
+      data: (body?.data ?? []) as PurchaseDto[],
+      totalCount: (body?.metadata?.totalCount ?? 0) as number,
+      currentPage: (body?.metadata?.currentPage ?? 1) as number,
+      totalPages: (body?.metadata?.totalPages ?? 1) as number,
+    };
   },
 
   async getDetail(voucherNo: string) {
