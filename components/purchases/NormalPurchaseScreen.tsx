@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,39 +10,64 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
 import { extractErrorMessage } from '../../services/api';
 import { purchaseService, PurchaseLineRequest } from '../../services/purchaseService';
-import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
+import {
+  chartOfAccountService,
+  ChartOfAccountHeadDto,
+} from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item, Unit } from '../../services/inventoryService';
+import { itemCategoryService } from '../../services/itemCategoryService';
 import { useAppStore } from '../../store/appStore';
+import { InlineSearchSelect, InlineSelectOption } from '../ui/InlineSearchSelect';
+import { FastItemEntryBar } from '../ui/FastItemEntryBar';
+import { useKeyboard } from '../../hooks/useKeyboard';
+import {
+  MobileMultiPaymentSection,
+  PaymentSplitRow,
+} from '../ui/MobileMultiPaymentSection';
+import {
+  getSelectablePrimaryUnits,
+  resolveDisplayQtyAndUnit,
+  toBasePrimaryQty,
+} from '../../utils/unitConversion';
+
+interface EditablePurchaseLine extends PurchaseLineRequest {
+  displayQty?: number;
+  selectedUnitId?: string;
+  unitFactor?: number;
+  showExtras?: boolean;
+}
 
 export function NormalPurchaseScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
   const router = useRouter();
-  const isEdit = voucherNo && voucherNo !== 'new' && mode !== 'copy';
+  const isEdit = Boolean(voucherNo && voucherNo !== 'new' && mode !== 'copy');
 
   const { currentTenantIdentifier, licenses } = useAppStore();
-  const currentOrg = licenses.find(l => l.tenantIdentifier === currentTenantIdentifier);
+  const currentOrg = licenses.find((l) => l.tenantIdentifier === currentTenantIdentifier);
   const hasSecondaryQty = currentOrg?.hasSecondaryQty ?? false;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
   // Lookups
   const [suppliers, setSuppliers] = useState<ChartOfAccountHeadDto[]>([]);
   const [narrations, setNarrations] = useState<NarrationDto[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+
+  // UI Mode
+  const [headerExpanded, setHeaderExpanded] = useState(true);
+  const [entryMode, setEntryMode] = useState<'list' | 'grid'>('list');
 
   // Form State
   const [date, setDate] = useState(new Date());
@@ -50,21 +75,13 @@ export function NormalPurchaseScreen() {
   const [supplierAccount, setSupplierAccount] = useState('');
   const [narration, setNarration] = useState('');
   const [description, setDescription] = useState('');
-  const [cashPaid, setCashPaid] = useState<string>('');
-  const [cashBack, setCashBack] = useState<string>('0');
-  const prevTotalRef = useRef<number>(0);
-  
-  // Lines State
-  const [lines, setLines] = useState<PurchaseLineRequest[]>([]);
-  
-  // Line Modal State
-  const [lineModalVisible, setLineModalVisible] = useState(false);
-  const [currentLine, setCurrentLine] = useState<Partial<PurchaseLineRequest>>({});
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
-  // Searchable Selection Modal State
-  const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'supplier' | 'narration' | 'item'>('supplier');
-  const [searchQuery, setSearchQuery] = useState('');
+  // Lines & Payments
+  const [lines, setLines] = useState<EditablePurchaseLine[]>([]);
+  const [payments, setPayments] = useState<PaymentSplitRow[]>([]);
+  const [legacyCashPaid, setLegacyCashPaid] = useState<number>(0);
 
   useEffect(() => {
     fetchLookups();
@@ -72,56 +89,91 @@ export function NormalPurchaseScreen() {
 
   const fetchLookups = async () => {
     try {
-      const [sups, narrs, itms, unts] = await Promise.all([
+      const [sups, narrs, itms, unts, itmCats] = await Promise.all([
         chartOfAccountService.getSupplierAccounts(),
         narrationService.getActiveNarrationsLookup(),
         inventoryService.getItemsLookup(undefined, true),
-        inventoryService.getUnitsLookup()
+        inventoryService.getUnits(),
+        itemCategoryService.getActiveItemCategoriesLookup().catch(() => []),
       ]);
-      setSuppliers(sups || []);
+      const safeSups = sups || [];
+      const itmCatMap = new Map<string, string>((itmCats || []).map((c) => [c.code, c.title]));
+      const safeItems = (itms || []).map((i) => ({
+        ...i,
+        itemCategoryTitle: i.itemCategoryTitle || itmCatMap.get(i.itemCategoryCode) || i.itemCategoryCode,
+      }));
+      const safeUnits = unts || [];
+      setSuppliers(safeSups);
       setNarrations(narrs || []);
-      setItems(itms || []);
-      setUnits(unts || []);
-      
+      setItems(safeItems);
+      setUnits(safeUnits);
+
       if (voucherNo && voucherNo !== 'new') {
-        await loadVoucherDetails();
+        await loadVoucherDetails(safeItems, safeUnits);
       } else {
+        if (safeSups.length > 0) {
+          setSupplierAccount(safeSups[0].account);
+        }
         setLoading(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load form data.');
       setLoading(false);
     }
   };
 
-  const loadVoucherDetails = async () => {
+  const loadVoucherDetails = async (loadedItems: Item[], loadedUnits: Unit[]) => {
     try {
-      const details = await purchaseService.getDetail(voucherNo!);
+      const [details, savedPayments] = await Promise.all([
+        purchaseService.getDetail(voucherNo!),
+        mode === 'copy'
+          ? Promise.resolve([])
+          : purchaseService.getPayments(voucherNo!).catch(() => []),
+      ]);
       if (details && details.length > 0) {
         const first = details[0];
         setDate(mode === 'copy' ? new Date() : new Date(first.date));
         setSupplierAccount(first.accountId);
-        setNarration(first.narrationId || '');
+        setNarration(first.narrationId || first.narration || '');
         setDescription(first.description || '');
-        if ((first as any).cashPaid !== undefined && (first as any).cashPaid !== null) {
-          setCashPaid(String((first as any).cashPaid));
-          setCashBack(String((first as any).cashBack || 0));
+        setHeaderExpanded(false);
+
+        if (savedPayments && savedPayments.length > 0) {
+          setPayments(
+            savedPayments.map((p) => ({
+              accountId: p.accountId,
+              amount: p.amount,
+              reference: p.reference,
+              checkNum: p.checkNum,
+              checkDate: p.checkDate,
+            }))
+          );
+        } else if (first.cashPaid !== undefined && first.cashPaid !== null) {
+          setLegacyCashPaid(Number(first.cashPaid) || 0);
         }
-        
-        const mappedLines = details.map(d => ({
-          seq: d.seq,
-          itemId: d.itemId,
-          unit: d.unit || '',
-          qty: d.qty,
-          rate: d.rate,
-          addLess: d.addLess,
-          secQty: d.secQty || 0,
-          secRate: d.secRate || 0,
-          secUnit: d.secUnit
-        }));
+
+        const mappedLines: EditablePurchaseLine[] = details.map((d) => {
+          const itemObj = loadedItems.find((i) => String(i.id) === String(d.itemId));
+          const resolved = resolveDisplayQtyAndUnit(d.qty, itemObj, loadedUnits, d.unit);
+          return {
+            seq: d.seq,
+            itemId: d.itemId,
+            unit: d.unit || itemObj?.primaryUnit || '',
+            qty: d.qty,
+            displayQty: resolved.displayQty,
+            selectedUnitId: resolved.selectedUnitId,
+            unitFactor: resolved.factor,
+            rate: d.rate,
+            addLess: d.addLess || 0,
+            secQty: d.secQty || 0,
+            secRate: d.secRate || 0,
+            secUnit: d.secUnit || itemObj?.secondaryUnit || '',
+            showExtras: Boolean((d.addLess || 0) !== 0 || (d.secQty || 0) > 0),
+          };
+        });
         setLines(mappedLines);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load purchase details.');
       router.back();
     } finally {
@@ -129,102 +181,147 @@ export function NormalPurchaseScreen() {
     }
   };
 
-  const openSelectModal = (type: 'supplier' | 'narration' | 'item') => {
-    setSelectModalType(type);
-    setSearchQuery('');
-    setSelectModalVisible(true);
+  // Resolve Purchase Cost Rate (lastPurchaseRate ?? costRate ?? 0)
+  const resolvePurchaseRates = (item: Item): { costRate: number; secCostRate: number } => {
+    const cost = item.lastPurchaseRate ?? item.costRate ?? 0;
+    const pSize = Number(item.qtyInPack || 0);
+    const secCost =
+      item.lastPurchaseSecRate ??
+      item.secCostRate ??
+      (pSize > 0 ? cost * pSize : 0);
+    return { costRate: cost, secCostRate: secCost };
   };
 
-  const handleSelect = (val: string) => {
-    if (selectModalType === 'supplier') {
-      setSupplierAccount(val);
-    } else if (selectModalType === 'narration') {
-      setNarration(val);
-    } else if (selectModalType === 'item') {
-      const selectedItem = items.find(i => i.id === val);
-      let defaultUnit = '';
-      let defaultRate = 0;
-      let secUnit = '';
-      let secRate = 0;
-      if (selectedItem) {
-        defaultUnit = selectedItem.defaultUnit || selectedItem.primaryUnit || '';
-        defaultRate = selectedItem.lastPurchaseRate ?? selectedItem.priRate ?? 0;
-        secUnit = selectedItem.secondaryUnit || '';
-        const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
-        secRate = selectedItem.lastPurchaseSecRate ?? (selectedItem.secRate || (defaultRate * (pSize > 0 ? pSize : 1)));
+  const handleFastAddItem = (item: Item, addedQty: number = 1, customRate?: number) => {
+    const { costRate, secCostRate } = resolvePurchaseRates(item);
+    const effectiveRate = customRate !== undefined ? customRate : costRate;
+
+    setLines((prev) => {
+      const existingIndex = prev.findIndex(
+        (l) => String(l.itemId).trim().toLowerCase() === String(item.id).trim().toLowerCase()
+      );
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        const existing = updated[existingIndex];
+        const factor = existing.unitFactor || 1;
+        const newBaseQty = Number((Number(existing.qty || 0) + Number(addedQty || 1)).toFixed(4));
+        const newDispQty =
+          factor > 1 ? Number((newBaseQty * factor).toFixed(3)) : newBaseQty;
+        updated[existingIndex] = {
+          ...existing,
+          qty: newBaseQty,
+          displayQty: newDispQty,
+        };
+        return updated;
       }
-      setCurrentLine(prev => ({
+
+      const maxSeq = prev.reduce((max, l) => Math.max(max, l.seq || 0), 0);
+      const resolved = resolveDisplayQtyAndUnit(addedQty, item, units);
+      return [
+        {
+          seq: maxSeq + 1,
+          itemId: item.id,
+          unit: item.defaultUnit || item.primaryUnit || '',
+          qty: addedQty,
+          displayQty: resolved.displayQty,
+          selectedUnitId: resolved.selectedUnitId,
+          unitFactor: resolved.factor,
+          rate: effectiveRate,
+          addLess: 0,
+          secUnit: item.secondaryUnit || '',
+          secQty: 0,
+          secRate: secCostRate,
+          showExtras: false,
+        },
         ...prev,
-        itemId: val,
-        unit: defaultUnit,
-        rate: defaultRate,
-        addLess: prev.addLess || 0,
-        secUnit,
-        secRate,
-        secQty: 0
-      }));
-    }
-    setSelectModalVisible(false);
-  };
-
-  const updateCurrentLineField = (field: string, val: string | number) => {
-    setCurrentLine(prev => {
-      const updated = { ...prev };
-      const cleanVal = typeof val === 'string' ? val.replace(/,/g, '') : val;
-      const numVal = (cleanVal !== null && cleanVal !== undefined && cleanVal !== '' && !isNaN(Number(cleanVal))) ? Number(cleanVal) : 0;
-      (updated as any)[field] = numVal;
-      return updated;
+      ];
     });
   };
 
-  const openLineModal = (line?: PurchaseLineRequest) => {
-    if (line) {
-      setCurrentLine({ ...line });
-    } else {
-      const maxSeq = lines.reduce((max, l) => Math.max(max, l.seq), 0);
-      setCurrentLine({
-        seq: maxSeq + 1,
-        itemId: '',
-        unit: '',
-        qty: 1,
-        rate: 0,
-        addLess: 0,
-        secQty: 0,
-        secRate: 0
-      });
-    }
-    setLineModalVisible(true);
+  const updateLine = (seq: number, patch: Partial<EditablePurchaseLine>) => {
+    setLines((prev) =>
+      prev.map((l) => (l.seq === seq ? { ...l, ...patch } : l))
+    );
   };
 
-  const saveLine = () => {
-    if (!currentLine.itemId || !currentLine.qty || currentLine.qty <= 0) {
-      Alert.alert('Validation Error', 'Item and a valid quantity are required.');
-      return;
-    }
-    
-    setLines(prev => {
-      const exists = prev.findIndex(l => l.seq === currentLine.seq);
-      if (exists >= 0) {
-        const newLines = [...prev];
-        newLines[exists] = currentLine as PurchaseLineRequest;
-        return newLines;
-      }
-      return [...prev, currentLine as PurchaseLineRequest];
+  const handleLineQtyChange = (line: EditablePurchaseLine, rawText: string) => {
+    const entered = parseFloat(rawText);
+    const num = isNaN(entered) ? 0 : entered;
+    const factor = line.unitFactor || 1;
+    const baseQty = toBasePrimaryQty(num, factor);
+    updateLine(line.seq, {
+      displayQty: num,
+      qty: baseQty,
     });
-    setLineModalVisible(false);
+  };
+
+  const handleStepLineQty = (line: EditablePurchaseLine, delta: number) => {
+    const factor = line.unitFactor || 1;
+    const step = factor > 1 ? 50 : 1;
+    const currentDisp = line.displayQty ?? line.qty ?? 0;
+    const nextDisp = Math.max(0, Number((currentDisp + delta * step).toFixed(3)));
+    const nextBase = toBasePrimaryQty(nextDisp, factor);
+    updateLine(line.seq, {
+      displayQty: nextDisp,
+      qty: nextBase,
+    });
+  };
+
+  const handleSwitchLineUnit = (line: EditablePurchaseLine, item?: Item) => {
+    const selectable = getSelectablePrimaryUnits(item, units);
+    if (selectable.length <= 1) return;
+    const currentIdx = selectable.findIndex((u) => u.unitId === line.selectedUnitId);
+    const nextOpt = selectable[(currentIdx + 1) % selectable.length];
+    const currentDisp = line.displayQty ?? line.qty ?? 0;
+    const newBaseQty = toBasePrimaryQty(currentDisp, nextOpt.factor);
+    updateLine(line.seq, {
+      selectedUnitId: nextOpt.unitId,
+      unitFactor: nextOpt.factor,
+      qty: newBaseQty,
+      displayQty: currentDisp,
+    });
   };
 
   const removeLine = async (seq: number) => {
     if (isEdit) {
       try {
         await purchaseService.deleteLine(voucherNo!, seq);
-      } catch (error) {
+      } catch {
         Alert.alert('Error', 'Failed to delete line from database.');
         return;
       }
     }
-    setLines(prev => prev.filter(l => l.seq !== seq));
+    setLines((prev) => prev.filter((l) => l.seq !== seq));
   };
+
+  const totalAmount = useMemo(
+    () =>
+      Math.round(
+        lines.reduce(
+          (sum, l) =>
+            sum +
+            ((l.qty || 0) * (l.rate || 0) +
+              (l.addLess || 0) +
+              (l.secQty || 0) * (l.secRate || 0)),
+          0
+        ) * 100
+      ) / 100,
+    [lines]
+  );
+
+  const totalPaid = useMemo(
+    () => payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+    [payments]
+  );
+  const cashBackAmount = Math.max(0, Math.round((totalPaid - totalAmount) * 100) / 100);
+
+  const cartQtyMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const l of lines) {
+      map[l.itemId] = Number(((map[l.itemId] || 0) + (l.qty || 0)).toFixed(3));
+    }
+    return map;
+  }, [lines]);
 
   const handleSaveVoucher = async () => {
     if (!supplierAccount || !date) {
@@ -235,11 +332,16 @@ export function NormalPurchaseScreen() {
       Alert.alert('Validation Error', 'At least one line item is required.');
       return;
     }
+    const invalidLine = lines.find((l) => !l.itemId || (l.qty || 0) <= 0);
+    if (invalidLine) {
+      Alert.alert('Validation Error', 'All items must have a quantity greater than 0.');
+      return;
+    }
 
     setSaving(true);
     try {
-      const cleanedLines = lines.map((l, idx) => ({
-        seq: l.seq || (idx + 1),
+      const cleanedLines: PurchaseLineRequest[] = lines.map((l, idx) => ({
+        seq: idx + 1,
         itemId: l.itemId,
         unit: l.unit || undefined,
         qty: Number(l.qty) || 0,
@@ -247,28 +349,43 @@ export function NormalPurchaseScreen() {
         addLess: Number(l.addLess) || 0,
         secQty: Number(l.secQty) || 0,
         secRate: Number(l.secRate) || 0,
-        secUnit: (Number(l.secQty) > 0 && l.secUnit) ? l.secUnit : undefined
+        secUnit: Number(l.secQty) > 0 && l.secUnit ? l.secUnit : undefined,
       }));
+
+      const validPayments = payments
+        .filter((p) => p.accountId && Number(p.amount) > 0)
+        .map((p, idx) => ({
+          seq: idx + 1,
+          accountId: p.accountId,
+          amount: Number(p.amount),
+          reference: p.reference || undefined,
+          checkNum: p.checkNum || undefined,
+          checkDate: p.checkDate || undefined,
+        }));
 
       const request = {
         date: dayjs(date).format('YYYY-MM-DD'),
         account: supplierAccount,
         narration: narration || undefined,
         description: description || undefined,
-        cashPaid: parseFloat(cashPaid) || 0,
-        cashBack: parseFloat(cashBack) || 0,
-        lines: cleanedLines
+        cashPaid: totalPaid,
+        cashBack: cashBackAmount,
+        lines: cleanedLines,
+        payments: validPayments,
       };
 
       if (isEdit) {
         await purchaseService.update(voucherNo!, request);
-        Alert.alert('Success', 'Purchase updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Purchase updated successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       } else {
         await purchaseService.create(request);
-        Alert.alert('Success', 'Purchase created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Purchase created successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       }
     } catch (error: any) {
-      console.error('Failed to save purchase:', error?.response?.data || error);
       Alert.alert('Error', extractErrorMessage(error, 'Failed to save purchase.'));
     } finally {
       setSaving(false);
@@ -278,92 +395,39 @@ export function NormalPurchaseScreen() {
   const handleDeleteVoucher = () => {
     Alert.alert('Delete Purchase', 'Are you sure you want to delete this purchase voucher?', [
       { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Delete', 
+      {
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           setSaving(true);
           try {
             await purchaseService.delete(voucherNo!);
-            Alert.alert('Success', 'Purchase deleted.', [{ text: 'OK', onPress: () => router.back() }]);
-          } catch (error) {
+            Alert.alert('Success', 'Purchase deleted.', [
+              { text: 'OK', onPress: () => router.back() },
+            ]);
+          } catch {
             Alert.alert('Error', 'Failed to delete purchase.');
             setSaving(false);
           }
-        }
-      }
+        },
+      },
     ]);
   };
 
-  const handleCopyAsNew = () => {
-    Alert.alert('Copy as New', 'Are you sure you want to duplicate this voucher?', [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Copy', 
-        onPress: () => {
-          setDate(new Date());
-          router.replace({ pathname: '/purchases/[voucherNo]' as any, params: { voucherNo: voucherNo, mode: 'copy' } });
-        } 
-      }
-    ]);
-  };
+  const supplierOptions: InlineSelectOption[] = useMemo(
+    () =>
+      suppliers.map((s) => ({
+        id: s.account,
+        title: s.title,
+        subtitle: `Account: ${s.account}`,
+      })),
+    [suppliers]
+  );
 
-  const totalAmount = useMemo(() => {
-    return lines.reduce((sum, l) => {
-      return sum + (l.qty * l.rate + l.addLess + ((l.secQty ?? 0) * (l.secRate ?? 0)));
-    }, 0);
-  }, [lines]);
-
-  const numCashPaid = parseFloat(cashPaid) || 0;
-  const numCashBack = parseFloat(cashBack) || 0;
-  const balance = totalAmount - numCashPaid + numCashBack;
-
-  useEffect(() => {
-    if (!isEdit || mode === 'copy') {
-      const isAutoSynced = !cashPaid || parseFloat(cashPaid) === 0 || parseFloat(cashPaid) === prevTotalRef.current;
-      if (isAutoSynced) {
-        setCashPaid(totalAmount > 0 ? totalAmount.toString() : '');
-        setCashBack('0');
-      } else {
-        const excess = Math.max(0, numCashPaid - totalAmount);
-        setCashBack(excess > 0 ? excess.toFixed(2) : '0');
-      }
-      prevTotalRef.current = totalAmount;
-    } else if (isEdit && !loading) {
-      const excess = Math.max(0, numCashPaid - totalAmount);
-      setCashBack(excess > 0 ? excess.toFixed(2) : '0');
-    }
-  }, [totalAmount, isEdit, mode, loading]);
-
-  const handleCashPaidChange = (text: string) => {
-    setCashPaid(text);
-    const paid = parseFloat(text) || 0;
-    if (paid > totalAmount) {
-      setCashBack((paid - totalAmount).toFixed(2));
-    } else {
-      setCashBack('0');
-    }
-  };
-
-  const filteredModalList = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (selectModalType === 'supplier') {
-      return suppliers.filter(s => 
-        s.title.toLowerCase().includes(q) || s.account.toLowerCase().includes(q)
-      );
-    } else if (selectModalType === 'narration') {
-      return narrations.filter(n => 
-        n.title.toLowerCase().includes(q) || n.code.toLowerCase().includes(q)
-      );
-    } else if (selectModalType === 'item') {
-      return items.filter(i => 
-        i.title.toLowerCase().includes(q) || 
-        (i.itemKey && i.itemKey.toLowerCase().includes(q)) ||
-        (i.barcode && i.barcode.toLowerCase().includes(q))
-      );
-    }
-    return [];
-  }, [selectModalType, searchQuery, suppliers, narrations, items]);
+  const narrationOptions: InlineSelectOption[] = useMemo(
+    () => narrations.map((n) => ({ id: n.code, title: n.title })),
+    [narrations]
+  );
 
   if (loading) {
     return (
@@ -373,702 +437,704 @@ export function NormalPurchaseScreen() {
     );
   }
 
+  const selectedSupplierObj = suppliers.find((s) => s.account === supplierAccount);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
       >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Master Details</Text>
-              {isEdit ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>PR-{String(voucherNo).padStart(5, '0')}</Text>
-                </View>
-              ) : (
-                <View style={[styles.badge, { backgroundColor: '#ecfdf5' }]}>
-                  <Text style={[styles.badgeText, { color: '#059669' }]}>
-                    {mode === 'copy' ? 'Duplicate Purchase' : 'New Purchase'}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+          ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* Compact Collapsible Master Header */}
+          <View style={styles.masterCard}>
+            <TouchableOpacity
+              style={styles.masterSummaryBar}
+              onPress={() => setHeaderExpanded((p) => !p)}
+            >
+              <View style={styles.masterSummaryLeft}>
+                <View style={styles.voucherBadge}>
+                  <Text style={styles.voucherBadgeText}>
+                    {isEdit
+                      ? `PR-${String(voucherNo).padStart(5, '0')}`
+                      : mode === 'copy'
+                      ? 'COPY'
+                      : 'NEW PURCHASE'}
                   </Text>
                 </View>
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Date *</Text>
-              <TouchableOpacity 
-                style={styles.datePickerBtn}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Ionicons name="calendar-outline" size={20} color={Theme.colors.primary} />
-                <Text style={styles.dateText}>{dayjs(date).format('DD-MMM-YYYY')}</Text>
-              </TouchableOpacity>
-              {showDatePicker && (
-                <DateTimePicker
-                  value={date}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(false);
-                    if (selectedDate) setDate(selectedDate);
-                  }}
-                />
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Supplier Account *</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('supplier')}
-              >
-                <Text style={[styles.selectorText, !supplierAccount && { color: Theme.colors.textSecondary }]}>
-                  {supplierAccount ? suppliers.find(s => s.account === supplierAccount)?.title || supplierAccount : 'Select Supplier'}
+                <TouchableOpacity
+                  style={styles.dateChip}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={13} color={Theme.colors.primary} />
+                  <Text style={styles.dateChipText}>{dayjs(date).format('DD MMM YY')}</Text>
+                </TouchableOpacity>
+                <Text style={styles.supplierSummaryTitle} numberOfLines={1}>
+                  {selectedSupplierObj?.title || 'Select Supplier *'}
                 </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Narration</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('narration')}
-              >
-                <Text style={[styles.selectorText, !narration && { color: Theme.colors.textSecondary }]}>
-                  {narration ? narrations.find(n => n.code === narration)?.title || narration : 'Select Narration'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Enter description"
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={description}
-                onChangeText={setDescription}
+              </View>
+              <Ionicons
+                name={headerExpanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={Theme.colors.textSecondary}
               />
-            </View>
-          </Animated.View>
+            </TouchableOpacity>
 
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Line Items</Text>
-              <TouchableOpacity style={styles.addBtn} onPress={() => openLineModal()}>
-                <Ionicons name="add" size={16} color={Theme.colors.white} />
-                <Text style={styles.addBtnText}>Add Line</Text>
-              </TouchableOpacity>
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={(_, d) => {
+                  setShowDatePicker(false);
+                  if (d) setDate(d);
+                }}
+              />
+            )}
+
+            {headerExpanded && (
+              <View style={styles.masterExpandedBody}>
+                <InlineSearchSelect
+                  label="Supplier / Vendor Account *"
+                  placeholder="Search Supplier..."
+                  value={supplierAccount}
+                  options={supplierOptions}
+                  onSelect={setSupplierAccount}
+                  compact
+                  rightAccessory={
+                    <TouchableOpacity
+                      style={styles.notesToggleLink}
+                      onPress={() => setNotesExpanded((prev) => !prev)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.notesToggleLinkText,
+                          (notesExpanded || Boolean(narration || description)) &&
+                            styles.notesToggleLinkTextActive,
+                        ]}
+                      >
+                        {notesExpanded || Boolean(narration || description)
+                          ? 'Notes / Ref'
+                          : '+ Notes & Narration'}
+                      </Text>
+                      <Ionicons
+                        name={
+                          notesExpanded || Boolean(narration || description)
+                            ? 'chevron-up'
+                            : 'chevron-down'
+                        }
+                        size={14}
+                        color={Theme.colors.primary}
+                      />
+                    </TouchableOpacity>
+                  }
+                />
+
+                {(notesExpanded || Boolean(narration || description)) && (
+                  <View style={styles.rowGap}>
+                    <View style={{ flex: 1 }}>
+                      <InlineSearchSelect
+                        label="Narration"
+                        placeholder="Select narration..."
+                        value={narration}
+                        options={narrationOptions}
+                        onSelect={setNarration}
+                        allowClear
+                        allowCustomText
+                        compact
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.compactLabel}>Invoice Ref / Notes</Text>
+                      <TextInput
+                        style={styles.compactTextInput}
+                        placeholder="Supplier bill #..."
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={description}
+                        onChangeText={setDescription}
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Fast Item Entry Bar */}
+          <FastItemEntryBar
+            items={items}
+            mode={entryMode}
+            onModeChange={setEntryMode}
+            onAddItem={(itm, q, r) => handleFastAddItem(itm, q, r)}
+            resolveItemRate={(itm) => resolvePurchaseRates(itm).costRate}
+            cartQtyMap={cartQtyMap}
+          />
+
+          {/* Inline Purchase Line Cards */}
+          <View style={styles.linesSection}>
+            <View style={styles.linesHeaderRow}>
+              <Text style={styles.linesSectionTitle}>
+                Purchased Items ({lines.length})
+              </Text>
+              {lines.length > 0 && (
+                <Text style={styles.linesTotalBadge}>
+                  Total: Rs. {totalAmount.toLocaleString()}
+                </Text>
+              )}
             </View>
 
             {lines.length === 0 ? (
-              <Text style={styles.emptyLinesText}>No lines added yet.</Text>
+              <View style={styles.emptyCartBox}>
+                <Ionicons name="cube-outline" size={32} color={Theme.colors.border} />
+                <Text style={styles.emptyCartText}>
+                  Scan or search items above to add to purchase bill.
+                </Text>
+              </View>
             ) : (
               lines.map((line) => {
-                const itemTitle = items.find(i => i.id === line.itemId)?.title || line.itemId;
-                const unitTitle = units.find(u => u.code === line.unit)?.title || line.unit || '';
-                const lineTotal = line.qty * line.rate + line.addLess + ((line.secQty ?? 0) * (line.secRate ?? 0));
+                const itemObj = items.find((i) => String(i.id) === String(line.itemId));
+                const selectableUnits = getSelectablePrimaryUnits(itemObj, units);
+                const activeUnitOpt =
+                  selectableUnits.find((u) => u.unitId === line.selectedUnitId) ||
+                  selectableUnits[0];
+                const unitLabel =
+                  activeUnitOpt?.shortLabel ||
+                  itemObj?.primaryUnitTitle ||
+                  line.unit ||
+                  'Unit';
+                const dispQty = line.displayQty ?? line.qty ?? 0;
+                const lineTotal =
+                  Math.round(
+                    ((line.qty || 0) * (line.rate || 0) +
+                      (line.addLess || 0) +
+                      (line.secQty || 0) * (line.secRate || 0)) *
+                      100
+                  ) / 100;
+
                 return (
                   <View key={line.seq} style={styles.lineCard}>
-                    <View style={styles.lineInfo}>
-                      <Text style={styles.lineAccount} numberOfLines={1}>{itemTitle}</Text>
-                      <Text style={styles.lineAmount}>Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-                      <Text style={styles.lineDetail}>
-                        {hasSecondaryQty ? (
-                          `Single Qty: ${line.qty} | Pack Qty: ${line.secQty ?? 0} @ Rs. ${(line.secRate ?? 0).toLocaleString()}`
-                        ) : (
-                          `Qty: ${line.qty} ${unitTitle} @ Rs. ${line.rate.toLocaleString()}`
-                        )}
-                        {line.addLess !== 0 ? ` | Add/Less: Rs. ${line.addLess.toLocaleString()}` : ''}
+                    <View style={styles.lineTopRow}>
+                      <Text style={styles.lineItemTitle} numberOfLines={1}>
+                        {itemObj?.title || `Item #${line.itemId}`}
                       </Text>
+                      <View style={styles.lineTopIcons}>
+                        <TouchableOpacity
+                          style={[
+                            styles.iconPillBtn,
+                            line.showExtras && styles.iconPillBtnActive,
+                          ]}
+                          onPress={() =>
+                            updateLine(line.seq, { showExtras: !line.showExtras })
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.extraToggleText,
+                              line.showExtras && { color: '#FFF' },
+                            ]}
+                          >
+                            +Add/Less
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => removeLine(line.seq)}
+                          style={{ padding: 4 }}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={16}
+                            color={Theme.colors.danger}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <View style={styles.lineActions}>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => openLineModal(line)}>
-                        <Ionicons name="pencil" size={20} color={Theme.colors.primary} />
+
+                    <View style={styles.inlineInputsRow}>
+                      <View style={styles.qtyStepperBox}>
+                        <TouchableOpacity
+                          style={styles.stepBtn}
+                          onPress={() => handleStepLineQty(line, -1)}
+                        >
+                          <Ionicons name="remove" size={14} color={Theme.colors.text} />
+                        </TouchableOpacity>
+                        <TextInput
+                          style={styles.qtyInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={dispQty === 0 ? '' : String(dispQty)}
+                          placeholder="0"
+                          onChangeText={(txt) => handleLineQtyChange(line, txt)}
+                        />
+                        <TouchableOpacity
+                          style={styles.stepBtn}
+                          onPress={() => handleStepLineQty(line, 1)}
+                        >
+                          <Ionicons name="add" size={14} color={Theme.colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.unitPill,
+                          selectableUnits.length > 1 && styles.unitPillSwitchable,
+                        ]}
+                        disabled={selectableUnits.length <= 1}
+                        onPress={() => handleSwitchLineUnit(line, itemObj)}
+                      >
+                        <Text style={styles.unitPillText}>{unitLabel}</Text>
+                        {selectableUnits.length > 1 && (
+                          <Ionicons
+                            name="swap-vertical"
+                            size={11}
+                            color={Theme.colors.primary}
+                          />
+                        )}
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => removeLine(line.seq)}>
-                        <Ionicons name="trash" size={20} color={Theme.colors.danger} />
-                      </TouchableOpacity>
+
+                      <View style={styles.inlineFieldBox}>
+                        <Text style={styles.miniFieldLabel}>Cost Rate</Text>
+                        <TextInput
+                          style={styles.inlineNumericInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.rate === 0 ? '' : String(line.rate)}
+                          placeholder="0"
+                          onChangeText={(txt) => {
+                            const r = parseFloat(txt);
+                            updateLine(line.seq, { rate: isNaN(r) ? 0 : r });
+                          }}
+                        />
+                      </View>
+
+                      <View style={styles.inlineAmountBox}>
+                        <Text style={styles.miniFieldLabel}>Line Total</Text>
+                        <Text style={styles.inlineAmountReadonly}>
+                          Rs. {lineTotal.toLocaleString()}
+                        </Text>
+                      </View>
                     </View>
+
+                    {line.showExtras && (
+                      <View style={styles.extrasRow}>
+                        <View style={styles.extraField}>
+                          <Text style={styles.extraLabel}>Add / Less (Rs.)</Text>
+                          <TextInput
+                            style={styles.extraInput}
+                            keyboardType="numeric"
+                            placeholder="0"
+                            value={line.addLess ? String(line.addLess) : ''}
+                            onChangeText={(txt) =>
+                              updateLine(line.seq, { addLess: parseFloat(txt) || 0 })
+                            }
+                          />
+                        </View>
+                        {hasSecondaryQty && (
+                          <>
+                            <View style={styles.extraField}>
+                              <Text style={styles.extraLabel}>Sec Qty</Text>
+                              <TextInput
+                                style={styles.extraInput}
+                                keyboardType="numeric"
+                                placeholder="0"
+                                value={line.secQty ? String(line.secQty) : ''}
+                                onChangeText={(txt) =>
+                                  updateLine(line.seq, { secQty: parseFloat(txt) || 0 })
+                                }
+                              />
+                            </View>
+                            <View style={styles.extraField}>
+                              <Text style={styles.extraLabel}>Sec Cost Rate</Text>
+                              <TextInput
+                                style={styles.extraInput}
+                                keyboardType="numeric"
+                                placeholder="0"
+                                value={line.secRate ? String(line.secRate) : ''}
+                                onChangeText={(txt) =>
+                                  updateLine(line.seq, { secRate: parseFloat(txt) || 0 })
+                                }
+                              />
+                            </View>
+                          </>
+                        )}
+                      </View>
+                    )}
                   </View>
                 );
               })
             )}
-            
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Amount</Text>
-              <Text style={styles.totalValue}>Rs. {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-            </View>
-          </Animated.View>
+          </View>
 
-          {/* Cash Payment Details Section */}
-          <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Details</Text>
-
-            <View style={[styles.row, { marginTop: Theme.spacing.sm }]}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                <Text style={styles.label}>Cash Paid</Text>
-                <TextInput
-                  style={styles.textInput}
-                  keyboardType="numeric"
-                  placeholder="0.00"
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={cashPaid}
-                  onChangeText={handleCashPaidChange}
-                />
-              </View>
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Cash Back</Text>
-                <TextInput
-                  style={styles.textInput}
-                  keyboardType="numeric"
-                  placeholder="0.00"
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={cashBack}
-                  onChangeText={setCashBack}
-                />
-              </View>
-            </View>
-
-            <View style={styles.balanceContainer}>
-              <View>
-                <Text style={styles.balanceLabel}>NET BALANCE</Text>
-                <View style={[
-                  styles.statusBadge, 
-                  balance === 0 ? styles.badgeSettled : balance > 0 ? styles.badgePayable : styles.badgeChange
-                ]}>
-                  <Text style={[
-                    styles.statusBadgeText,
-                    balance === 0 ? styles.textSettled : balance > 0 ? styles.textPayable : styles.textChange
-                  ]}>
-                    {balance === 0 ? 'SETTLED' : balance > 0 ? 'PAYABLE' : 'CHANGE'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={[
-                styles.balanceAmount,
-                balance > 0 ? styles.amountPayable : styles.amountSettled
-              ]}>
-                Rs. {Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </Text>
-            </View>
-          </Animated.View>
-
+          {/* Multi-Payment Section */}
+          <MobileMultiPaymentSection
+            mode="purchase"
+            netTotal={totalAmount}
+            payments={payments}
+            onChange={setPayments}
+            legacyCashAmount={legacyCashPaid}
+          />
         </ScrollView>
 
         <View style={styles.footer}>
           {isEdit && (
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteVoucher} disabled={saving}>
-              <Ionicons name="trash-outline" size={24} color={Theme.colors.danger} />
+            <TouchableOpacity
+              style={styles.iconFooterBtn}
+              onPress={handleDeleteVoucher}
+              disabled={saving}
+            >
+              <Ionicons name="trash-outline" size={20} color={Theme.colors.danger} />
             </TouchableOpacity>
           )}
-          {(isEdit || mode === 'copy') && (
-            <TouchableOpacity style={styles.copyBtn} onPress={handleCopyAsNew} disabled={saving || mode === 'copy'}>
-              <Ionicons name="copy-outline" size={24} color={Theme.colors.primary} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={[styles.saveBtn, { flex: 1 }]} onPress={handleSaveVoucher} disabled={saving}>
-            {saving ? <ActivityIndicator color={Theme.colors.white} /> : (
+          <TouchableOpacity
+            style={styles.saveBtn}
+            onPress={handleSaveVoucher}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
               <>
-                <Ionicons name="save-outline" size={20} color={Theme.colors.white} style={{ marginRight: 8 }} />
-                <Text style={styles.saveBtnText}>Save Purchase</Text>
+                <Ionicons name="save-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.saveBtnText}>
+                  {isEdit ? 'Update Purchase' : 'Save Purchase'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
-
-        {/* Line Item Modal */}
-        <Modal visible={lineModalVisible} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{currentLine.itemId ? 'Edit Line' : 'Add Line'}</Text>
-                <TouchableOpacity onPress={() => setLineModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Product Item *</Text>
-                  <TouchableOpacity 
-                    style={styles.pickerContainer}
-                    onPress={() => openSelectModal('item')}
-                  >
-                    <Text style={[styles.selectorText, !currentLine.itemId && { color: Theme.colors.textSecondary }]}>
-                      {currentLine.itemId ? items.find(i => i.id === currentLine.itemId)?.title || currentLine.itemId : 'Select Product Item'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Quantity *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.qty !== undefined ? String(currentLine.qty) : '1'}
-                      onChangeText={(val) => updateCurrentLineField('qty', val)}
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Rate *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.rate !== undefined ? String(currentLine.rate) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('rate', val)}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Add / Less (Rs.)</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    keyboardType="numeric"
-                    value={currentLine.addLess !== undefined ? String(currentLine.addLess) : '0'}
-                    onChangeText={(val) => updateCurrentLineField('addLess', val)}
-                  />
-                </View>
-
-                {hasSecondaryQty && (
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                      <Text style={styles.label}>Secondary Qty</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        keyboardType="numeric"
-                        value={currentLine.secQty !== undefined ? String(currentLine.secQty) : '0'}
-                        onChangeText={(val) => updateCurrentLineField('secQty', val)}
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.label}>Secondary Rate</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        keyboardType="numeric"
-                        value={currentLine.secRate !== undefined ? String(currentLine.secRate) : '0'}
-                        onChangeText={(val) => updateCurrentLineField('secRate', val)}
-                      />
-                    </View>
-                  </View>
-                )}
-
-                <TouchableOpacity style={styles.modalSaveBtn} onPress={saveLine}>
-                  <Text style={styles.modalSaveBtnText}>Save Line</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Selection Search Modal */}
-        <Modal visible={selectModalVisible} animationType="fade" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  {selectModalType === 'supplier' && 'Select Supplier'}
-                  {selectModalType === 'narration' && 'Select Narration'}
-                  {selectModalType === 'item' && 'Select Product Item'}
-                </Text>
-                <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Type to filter..."
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoFocus
-                />
-              </View>
-
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {filteredModalList.map((item: any, idx: number) => {
-                  let val = '';
-                  let title = '';
-                  let subtitle = '';
-
-                  if (selectModalType === 'supplier') {
-                    val = item.account;
-                    title = item.title;
-                    subtitle = `Account: ${item.account}`;
-                  } else if (selectModalType === 'narration') {
-                    val = item.code;
-                    title = item.title;
-                  } else if (selectModalType === 'item') {
-                    val = item.id;
-                    title = item.title;
-                    subtitle = `Rate: Rs. ${item.priRate || 0}${item.barcode ? ` | Barcode: ${item.barcode}` : ''}`;
-                  }
-
-                  return (
-                    <TouchableOpacity 
-                      key={idx}
-                      style={styles.modalListItem}
-                      onPress={() => handleSelect(val)}
-                    >
-                      <Text style={styles.modalListItemText}>{title}</Text>
-                      {!!subtitle && <Text style={styles.modalListItemSub}>{subtitle}</Text>}
-                    </TouchableOpacity>
-                  );
-                })}
-                {filteredModalList.length === 0 && (
-                  <Text style={styles.emptyLinesText}>No matching records found.</Text>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: Theme.spacing.md,
-    paddingBottom: 40,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  section: {
-    backgroundColor: Theme.colors.white,
-    borderRadius: Theme.radii.lg,
-    padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+  safeArea: { flex: 1, backgroundColor: Theme.colors.background },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  content: { padding: 12, paddingBottom: 32 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  masterCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    marginBottom: 10,
     ...Theme.shadows.sm,
   },
-  rowBetween: {
+  masterSummaryBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.sm,
+    justifyContent: 'space-between',
   },
-  sectionTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
+  masterSummaryLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 6,
   },
-  badge: {
-    backgroundColor: '#eff6ff',
+  voucherBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  voucherBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  dateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: Theme.radii.sm,
+    borderRadius: 6,
   },
-  badgeText: {
-    ...Theme.typography.caption,
+  dateChipText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+  supplierSummaryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    flex: 1,
+  },
+  masterExpandedBody: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
+  },
+  notesToggleLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  notesToggleLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: Theme.colors.primary,
+  },
+  notesToggleLinkTextActive: {
     fontWeight: '700',
   },
-  inputGroup: {
-    marginBottom: Theme.spacing.sm,
-  },
-  row: {
-    flexDirection: 'row',
-  },
-  label: {
-    ...Theme.typography.caption,
+  rowGap: { flexDirection: 'row', gap: 8 },
+  compactLabel: {
+    fontSize: 11,
+    fontWeight: '600',
     color: Theme.colors.textSecondary,
     marginBottom: 4,
   },
-  datePickerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  compactTextInput: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 10,
-  },
-  dateText: {
-    ...Theme.typography.body,
-    marginLeft: Theme.spacing.sm,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    height: 34,
+    fontSize: 13,
     color: Theme.colors.text,
   },
-  pickerContainer: {
+  linesSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    ...Theme.shadows.sm,
+  },
+  linesHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 12,
+    marginBottom: 8,
   },
-  selectorText: {
-    ...Theme.typography.body,
+  linesSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
     color: Theme.colors.text,
   },
-  textInput: {
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 10,
-    ...Theme.typography.body,
-    color: Theme.colors.text,
+  linesTotalBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.colors.primary,
   },
-  addBtn: {
-    flexDirection: 'row',
+  emptyCartBox: {
     alignItems: 'center',
-    backgroundColor: Theme.colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Theme.radii.sm,
+    paddingVertical: 20,
+    gap: 6,
   },
-  addBtnText: {
-    ...Theme.typography.caption,
-    color: Theme.colors.white,
-    marginLeft: 4,
-    fontWeight: '600',
-  },
-  emptyLinesText: {
-    ...Theme.typography.body,
+  emptyCartText: {
+    fontSize: 12.5,
     color: Theme.colors.textSecondary,
-    textAlign: 'center',
-    marginVertical: Theme.spacing.md,
   },
   lineCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 9,
+    marginBottom: 8,
+  },
+  lineTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radii.md,
-    marginBottom: Theme.spacing.sm,
-  },
-  lineInfo: {
-    flex: 1,
-    marginRight: Theme.spacing.sm,
-  },
-  lineAccount: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.text,
-    fontWeight: '600',
-  },
-  lineAmount: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.primary,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  lineDetail: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  lineActions: {
-    flexDirection: 'row',
-  },
-  actionBtn: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  totalRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: Theme.colors.border,
-    paddingTop: Theme.spacing.md,
-    marginTop: Theme.spacing.sm,
+    marginBottom: 7,
   },
-  totalLabel: {
-    ...Theme.typography.h3,
+  lineItemTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    flex: 1,
+    marginRight: 8,
+  },
+  lineTopIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconPillBtn: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  iconPillBtnActive: {
+    backgroundColor: Theme.colors.primary,
+  },
+  extraToggleText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  inlineInputsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  qtyStepperBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    height: 36,
+  },
+  stepBtn: {
+    paddingHorizontal: 7,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  qtyInput: {
+    minWidth: 42,
+    maxWidth: 62,
+    textAlign: 'center',
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    paddingVertical: 0,
+  },
+  unitPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 7,
+    height: 36,
+    borderRadius: 8,
+  },
+  unitPillSwitchable: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  unitPillText: {
+    fontSize: 11,
+    fontWeight: '700',
     color: Theme.colors.text,
   },
-  totalValue: {
-    ...Theme.typography.h2,
-    color: Theme.colors.primary,
+  inlineFieldBox: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    height: 36,
+    justifyContent: 'center',
+  },
+  miniFieldLabel: {
+    fontSize: 8.5,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: -2,
+  },
+  inlineNumericInput: {
+    fontSize: 13,
     fontWeight: '700',
+    color: Theme.colors.text,
+    paddingVertical: 0,
+  },
+  inlineAmountBox: {
+    flex: 1.15,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    height: 36,
+    justifyContent: 'center',
+  },
+  inlineAmountReadonly: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+    marginTop: 1,
+  },
+  extrasRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 7,
+    paddingTop: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#CBD5E1',
+  },
+  extraField: {
+    flex: 1,
+  },
+  extraLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: 2,
+  },
+  extraInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    height: 30,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Theme.colors.text,
   },
   footer: {
     flexDirection: 'row',
-    padding: Theme.spacing.md,
-    backgroundColor: Theme.colors.white,
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: Theme.colors.border,
   },
-  deleteBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Theme.radii.md,
+  iconFooterBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: Theme.colors.danger,
-    justifyContent: 'center',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
-    marginRight: Theme.spacing.sm,
-  },
-  copyBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Theme.radii.md,
-    borderWidth: 1,
-    borderColor: Theme.colors.primary,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Theme.spacing.sm,
   },
   saveBtn: {
-    backgroundColor: Theme.colors.primary,
-    height: 48,
-    borderRadius: Theme.radii.md,
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: Theme.colors.primary,
   },
   saveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
+    fontSize: 14,
     fontWeight: '700',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Theme.colors.white,
-    borderTopLeftRadius: Theme.radii.xl,
-    borderTopRightRadius: Theme.radii.xl,
-    padding: Theme.spacing.md,
-    maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Theme.spacing.md,
-  },
-  modalTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
-  },
-  modalBody: {
-    marginBottom: Theme.spacing.lg,
-  },
-  modalSaveBtn: {
-    backgroundColor: Theme.colors.primary,
-    borderRadius: Theme.radii.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: Theme.spacing.md,
-  },
-  modalSaveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
-    fontWeight: '700',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.sm,
-    marginBottom: Theme.spacing.md,
-  },
-  searchIcon: {
-    marginRight: 6,
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  modalListItem: {
-    paddingVertical: Theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.background,
-  },
-  modalListItemText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  modalListItemSub: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  balanceContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
-    padding: Theme.spacing.md,
-    marginTop: Theme.spacing.md,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-  },
-  balanceLabel: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Theme.radii.sm,
-    alignSelf: 'flex-start',
-  },
-  badgeSettled: {
-    backgroundColor: 'rgba(72, 187, 120, 0.15)',
-  },
-  badgePayable: {
-    backgroundColor: 'rgba(236, 201, 75, 0.2)',
-  },
-  badgeChange: {
-    backgroundColor: 'rgba(108, 99, 255, 0.15)',
-  },
-  statusBadgeText: {
-    ...Theme.typography.small,
-    fontWeight: '700',
-  },
-  textSettled: {
-    color: Theme.colors.success,
-  },
-  textPayable: {
-    color: '#D69E2E',
-  },
-  textChange: {
-    color: Theme.colors.primary,
-  },
-  balanceAmount: {
-    ...Theme.typography.h2,
-    fontWeight: '700',
-  },
-  amountPayable: {
-    color: Theme.colors.danger,
-  },
-  amountSettled: {
-    color: Theme.colors.success,
+    color: '#FFFFFF',
   },
 });

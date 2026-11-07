@@ -133,7 +133,7 @@ export default function PurchasesListScreen() {
               <View style={{ paddingVertical: 16 }}>
                 <ActivityIndicator size="small" color={Theme.colors.primary} />
               </View>
-            ) : null
+            ) : undefined
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

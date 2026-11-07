@@ -35,6 +35,8 @@ export interface CustomerResponse {
   mediaUrl?: string;
   parentCustomerAccountId?: string;
   parentCustomerTitle?: string;
+  customerCategoryId?: string | null;
+  customerCategoryTitle?: string | null;
   isSubAccount?: boolean;
   createdBy?: string;
   createdOn?: string;
@@ -59,6 +61,7 @@ export interface CustomerCreateRequest {
   active: boolean;
   mediaId?: string;
   parentCustomerAccountId?: string;
+  customerCategoryId?: string | null;
   supplyItems?: CustomerSupplyItemDto[];
 }
 
@@ -78,6 +81,7 @@ export interface CustomerUpdateRequest {
   active: boolean;
   mediaId?: string;
   parentCustomerAccountId?: string;
+  customerCategoryId?: string | null;
   supplyItems?: CustomerSupplyItemDto[];
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
-  Image,
-  Modal,
-  FlatList
+  Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -23,22 +21,41 @@ import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import { Theme } from '../../constants/theme';
 import { extractErrorMessage } from '../../services/api';
-import { customerService, CustomerCreateRequest, CustomerUpdateRequest, CustomerResponse } from '../../services/customerService';
+import {
+  customerService,
+  CustomerCreateRequest,
+  CustomerUpdateRequest,
+  CustomerResponse,
+  CustomerSupplyItemDto
+} from '../../services/customerService';
+import { customerCategoryService, CustomerCategoryLookupResponse } from '../../services/customerCategoryService';
+import { inventoryService, Item } from '../../services/inventoryService';
+import { InlineSearchSelect } from '../../components/ui/InlineSearchSelect';
+import { useKeyboard } from '../../hooks/useKeyboard';
 
 export default function CustomerFormScreen() {
   const { account } = useLocalSearchParams<{ account: string }>();
   const router = useRouter();
-  const isEdit = account && account !== 'new';
+  const isEdit = Boolean(account && account !== 'new');
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
-  
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+
+  // Lookups
+  const [allCustomers, setAllCustomers] = useState<CustomerResponse[]>([]);
+  const [customerCategories, setCustomerCategories] = useState<CustomerCategoryLookupResponse[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+
   // Form State
   const [title, setTitle] = useState('');
+  const [customerCategoryId, setCustomerCategoryId] = useState<string>('');
+  const [customerCategoryTitle, setCustomerCategoryTitle] = useState<string>('');
   const [email, setEmail] = useState('');
   const [phone1, setPhone1] = useState('');
   const [phone2, setPhone2] = useState('');
   const [address, setAddress] = useState('');
+  const [qualification, setQualification] = useState('');
   const [cnic, setCnic] = useState('');
   const [fax, setFax] = useState('');
   const [smsNumber, setSmsNumber] = useState('');
@@ -52,31 +69,49 @@ export default function CustomerFormScreen() {
 
   // Sub-Account State
   const [isSubAccount, setIsSubAccount] = useState(false);
-  const [parentCustomerAccountId, setParentCustomerAccountId] = useState<string | null>(null);
-  const [parentCustomerTitle, setParentCustomerTitle] = useState('');
-  const [allCustomers, setAllCustomers] = useState<CustomerResponse[]>([]);
-  const [parentModalVisible, setParentModalVisible] = useState(false);
-  const [parentSearchQuery, setParentSearchQuery] = useState('');
+  const [parentCustomerAccountId, setParentCustomerAccountId] = useState<string>('');
+
+  // Default Supply Items
+  const [supplyItems, setSupplyItems] = useState<CustomerSupplyItemDto[]>([]);
 
   useEffect(() => {
-    customerService.getCustomers()
-      .then(res => setAllCustomers(res || []))
-      .catch(() => {});
-
+    loadLookups();
     if (isEdit) {
       loadCustomerDetails();
     }
   }, [isEdit]);
 
+  const loadLookups = async () => {
+    try {
+      const [custRes, catRes, itemRes] = await Promise.all([
+        customerService.getCustomers().catch(() => []),
+        customerCategoryService.getLookup().catch(() => []),
+        inventoryService.getItemsLookup().catch(() => [])
+      ]);
+      setAllCustomers(custRes || []);
+      setCustomerCategories(catRes || []);
+      setItems(itemRes || []);
+    } catch (err) {
+      console.warn('Failed to load customer form lookups', err);
+    }
+  };
+
   const loadCustomerDetails = async () => {
     try {
-      const details = await customerService.getDetail(account!);
+      const [details, custSupplyItems] = await Promise.all([
+        customerService.getDetail(account!),
+        customerService.getSupplyItems({ customerAccountId: account! }).catch(() => [])
+      ]);
+
       if (details) {
         setTitle(details.title || '');
+        setCustomerCategoryId(details.customerCategoryId || '');
+        setCustomerCategoryTitle(details.customerCategoryTitle || '');
         setEmail(details.email || '');
         setPhone1(details.phone1 || '');
         setPhone2(details.phone2 || '');
         setAddress(details.address || '');
+        setQualification(details.qualification || '');
         setCnic(details.cnic || '');
         setFax(details.fax || '');
         setSmsNumber(details.smsNumber || '');
@@ -87,8 +122,12 @@ export default function CustomerFormScreen() {
         setMediaId(details.mediaId || null);
         setImageUrl(details.mediaUrl || null);
         setIsSubAccount(Boolean(details.isSubAccount || details.parentCustomerAccountId));
-        setParentCustomerAccountId(details.parentCustomerAccountId || null);
-        setParentCustomerTitle(details.parentCustomerTitle || '');
+        setParentCustomerAccountId(details.parentCustomerAccountId || '');
+        setSupplyItems(
+          custSupplyItems && custSupplyItems.length > 0
+            ? custSupplyItems
+            : (details.supplyItems || [])
+        );
       } else {
         Alert.alert('Error', 'Customer not found.');
         router.back();
@@ -132,7 +171,7 @@ export default function CustomerFormScreen() {
     setUploading(true);
     try {
       const { fileId, uploadUrl } = await customerService.getPresignedUploadUrl(name);
-      
+
       const formData = new FormData();
       formData.append('File', {
         uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri,
@@ -157,6 +196,46 @@ export default function CustomerFormScreen() {
     }
   };
 
+  const handleAddSupplyItem = (selectedItemId: string) => {
+    if (!selectedItemId) return;
+    if (supplyItems.some(s => s.itemId === selectedItemId)) {
+      Alert.alert('Duplicate Item', 'This item is already in the customer default supply list.');
+      return;
+    }
+    const found = items.find(i => i.id === selectedItemId);
+    setSupplyItems(prev => [
+      ...prev,
+      {
+        customerAccountId: isEdit ? account : undefined,
+        itemId: selectedItemId,
+        itemTitle: found?.title || selectedItemId,
+        qty: 1,
+        secQty: 0,
+        rate: found?.priRate ?? undefined,
+        discount: 0,
+        carriage: 0,
+        addLess: 0
+      }
+    ]);
+  };
+
+  const handleUpdateSupplyItem = (itemId: string, field: keyof CustomerSupplyItemDto, rawVal: string) => {
+    setSupplyItems(prev =>
+      prev.map(row => {
+        if (row.itemId !== itemId) return row;
+        if (rawVal === '') {
+          return { ...row, [field]: field === 'qty' ? 0 : undefined };
+        }
+        const num = parseFloat(rawVal);
+        return { ...row, [field]: isNaN(num) ? 0 : num };
+      })
+    );
+  };
+
+  const handleRemoveSupplyItem = (itemId: string) => {
+    setSupplyItems(prev => prev.filter(s => s.itemId !== itemId));
+  };
+
   const handleSave = async () => {
     if (!title.trim()) {
       Alert.alert('Validation Error', 'Customer Name is required.');
@@ -170,16 +249,45 @@ export default function CustomerFormScreen() {
 
     setSaving(true);
     try {
+      const sanitizedSupplyItems = supplyItems
+        .filter(s => s.itemId && (Number(s.qty) || 0) > 0)
+        .map(s => ({
+          customerAccountId: isEdit ? account : undefined,
+          itemId: s.itemId,
+          qty: Number(s.qty) || 1,
+          secQty: s.secQty != null ? Number(s.secQty) : undefined,
+          rate: s.rate != null ? Number(s.rate) : undefined,
+          discount: s.discount != null ? Number(s.discount) : undefined,
+          carriage: s.carriage != null ? Number(s.carriage) : undefined,
+          addLess: s.addLess != null ? Number(s.addLess) : undefined,
+        }));
+
+      const commonPayload = {
+        title,
+        customerCategoryId: customerCategoryId || null,
+        email,
+        phone1,
+        phone2,
+        address,
+        qualification: qualification || undefined,
+        cnic,
+        fax,
+        smsNumber,
+        iban,
+        active,
+        smsAlert,
+        emailAlert,
+        mediaId: mediaId || undefined,
+        parentCustomerAccountId: isSubAccount ? (parentCustomerAccountId || undefined) : undefined,
+        supplyItems: sanitizedSupplyItems
+      };
+
       if (isEdit) {
-        const payload: CustomerUpdateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined, parentCustomerAccountId: isSubAccount ? (parentCustomerAccountId || undefined) : undefined
-        };
+        const payload: CustomerUpdateRequest = commonPayload;
         await customerService.update(account!, payload);
         Alert.alert('Success', 'Customer updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       } else {
-        const payload: CustomerCreateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, smsAlert, emailAlert, mediaId: mediaId || undefined, parentCustomerAccountId: isSubAccount ? (parentCustomerAccountId || undefined) : undefined
-        };
+        const payload: CustomerCreateRequest = commonPayload;
         await customerService.create(payload);
         Alert.alert('Success', 'Customer created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       }
@@ -191,6 +299,29 @@ export default function CustomerFormScreen() {
     }
   };
 
+  const categoryOptions = useMemo(() => customerCategories.map(c => ({
+    value: c.code,
+    label: c.title,
+    subtitle: `Code: ${c.code}`
+  })), [customerCategories]);
+
+  const parentCustomerOptions = useMemo(() =>
+    allCustomers
+      .filter(c => c.account !== account && !c.isSubAccount && !c.parentCustomerAccountId)
+      .map(c => ({
+        value: c.account,
+        label: c.title,
+        subtitle: `Account: ${c.account}`
+      })),
+    [allCustomers, account]
+  );
+
+  const itemOptions = useMemo(() => items.map(i => ({
+    value: i.id,
+    label: i.title,
+    subtitle: `Code: ${i.id} • Rate: Rs. ${i.priRate || 0}`
+  })), [items]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -201,13 +332,23 @@ export default function CustomerFormScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
       >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-          
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.avatarSection}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+          ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+
+          <Animated.View entering={FadeInDown.duration(350)} style={styles.avatarSection}>
             <TouchableOpacity onPress={pickImage} disabled={uploading} style={styles.avatarBtn}>
               {imageUrl ? (
                 <Image source={{ uri: imageUrl }} style={styles.avatarImage} />
@@ -229,9 +370,9 @@ export default function CustomerFormScreen() {
             <Text style={styles.avatarText}>{uploading ? 'Uploading...' : imageUrl ? 'Change Avatar' : 'Upload Avatar'}</Text>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.section}>
+          <Animated.View entering={FadeInDown.duration(350)} style={styles.section}>
             <Text style={styles.sectionTitle}>Basic Information</Text>
-            
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Customer Name *</Text>
               <TextInput
@@ -244,15 +385,18 @@ export default function CustomerFormScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Enter email address"
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
+              <InlineSearchSelect
+                label="Customer Category (Pricing Tier)"
+                options={categoryOptions}
+                value={customerCategoryId}
+                displayValue={customerCategoryTitle || categoryOptions.find(c => c.value === customerCategoryId)?.label}
+                onSelect={(val, opt) => {
+                  setCustomerCategoryId(val);
+                  setCustomerCategoryTitle(opt?.label || opt?.title || '');
+                }}
+                placeholder="Select Customer Category (Optional)..."
+                icon="pricetag-outline"
+                clearable
               />
             </View>
 
@@ -281,10 +425,35 @@ export default function CustomerFormScreen() {
               </View>
             </View>
 
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Email address"
+                  placeholderTextColor={Theme.colors.textSecondary}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.label}>Qualification</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Trader / Dealer"
+                  placeholderTextColor={Theme.colors.textSecondary}
+                  value={qualification}
+                  onChangeText={setQualification}
+                />
+              </View>
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Address</Text>
               <TextInput
-                style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+                style={[styles.textInput, { height: 70, textAlignVertical: 'top' }]}
                 placeholder="Full address"
                 placeholderTextColor={Theme.colors.textSecondary}
                 value={address}
@@ -294,9 +463,120 @@ export default function CustomerFormScreen() {
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
+          {/* Default Supply Items Section */}
+          <Animated.View entering={FadeInDown.delay(100).duration(350)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Default Supply Items</Text>
+            <Text style={styles.sectionSubtitle}>
+              Configure standing quantities and custom rates for Sale Supply sheets
+            </Text>
+
+            <View style={{ marginBottom: Theme.spacing.sm }}>
+              <InlineSearchSelect
+                options={itemOptions}
+                value=""
+                onSelect={handleAddSupplyItem}
+                placeholder="Search & add default supply item..."
+                icon="add-circle-outline"
+                compact
+              />
+            </View>
+
+            {supplyItems.length === 0 ? (
+              <Text style={styles.emptySupplyText}>No default supply items configured.</Text>
+            ) : (
+              supplyItems.map((sItem) => {
+                const matchedItem = items.find(i => i.id === sItem.itemId);
+                return (
+                  <View key={sItem.itemId} style={styles.supplyItemCard}>
+                    <View style={styles.supplyItemHeader}>
+                      <Text style={styles.supplyItemTitle} numberOfLines={1}>
+                        {sItem.itemTitle || matchedItem?.title || sItem.itemId}
+                      </Text>
+                      <TouchableOpacity onPress={() => handleRemoveSupplyItem(sItem.itemId)}>
+                        <Ionicons name="trash-outline" size={18} color={Theme.colors.danger} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.supplyFieldsRow}>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Qty</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.qty != null ? String(sItem.qty) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'qty', val)}
+                          placeholder="1"
+                          selectTextOnFocus
+                        />
+                      </View>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Sec Qty</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.secQty != null ? String(sItem.secQty) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'secQty', val)}
+                          placeholder="0"
+                          selectTextOnFocus
+                        />
+                      </View>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Rate</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.rate != null ? String(sItem.rate) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'rate', val)}
+                          placeholder="Default"
+                          selectTextOnFocus
+                        />
+                      </View>
+                    </View>
+
+                    <View style={[styles.supplyFieldsRow, { marginTop: 6 }]}>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Discount</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.discount != null ? String(sItem.discount) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'discount', val)}
+                          placeholder="0"
+                          selectTextOnFocus
+                        />
+                      </View>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Carriage</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.carriage != null ? String(sItem.carriage) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'carriage', val)}
+                          placeholder="0"
+                          selectTextOnFocus
+                        />
+                      </View>
+                      <View style={styles.supplyFieldCol}>
+                        <Text style={styles.supplyFieldLabel}>Add/Less</Text>
+                        <TextInput
+                          style={styles.supplyInput}
+                          keyboardType="numeric"
+                          value={sItem.addLess != null ? String(sItem.addLess) : ''}
+                          onChangeText={(val) => handleUpdateSupplyItem(sItem.itemId, 'addLess', val)}
+                          placeholder="0"
+                          selectTextOnFocus
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(200).duration(350)} style={styles.section}>
             <Text style={styles.sectionTitle}>Additional Details</Text>
-            
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>CNIC</Text>
               <TextInput
@@ -308,7 +588,7 @@ export default function CustomerFormScreen() {
                 keyboardType="numeric"
               />
             </View>
-            
+
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
                 <Text style={styles.label}>IBAN</Text>
@@ -345,9 +625,9 @@ export default function CustomerFormScreen() {
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
+          <Animated.View entering={FadeInDown.delay(300).duration(350)} style={styles.section}>
             <Text style={styles.sectionTitle}>Preferences</Text>
-            
+
             <View style={styles.switchRow}>
               <View style={{ flex: 1, marginRight: 8 }}>
                 <Text style={styles.switchLabel}>Sub-Account of another Customer</Text>
@@ -358,8 +638,7 @@ export default function CustomerFormScreen() {
                 onValueChange={(val) => {
                   setIsSubAccount(val);
                   if (!val) {
-                    setParentCustomerAccountId(null);
-                    setParentCustomerTitle('');
+                    setParentCustomerAccountId('');
                   }
                 }}
                 trackColor={{ false: Theme.colors.border, true: Theme.colors.primary }}
@@ -369,18 +648,14 @@ export default function CustomerFormScreen() {
 
             {isSubAccount && (
               <View style={[styles.inputGroup, { marginTop: Theme.spacing.sm }]}>
-                <Text style={styles.label}>Main Customer Account *</Text>
-                <TouchableOpacity
-                  style={styles.selectorBtn}
-                  onPress={() => setParentModalVisible(true)}
-                >
-                  <Text style={[styles.selectorText, !parentCustomerAccountId && styles.placeholder]}>
-                    {parentCustomerTitle
-                      ? `${parentCustomerTitle} (${parentCustomerAccountId})`
-                      : 'Select Main Customer...'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-                </TouchableOpacity>
+                <InlineSearchSelect
+                  label="Main Customer Account *"
+                  options={parentCustomerOptions}
+                  value={parentCustomerAccountId}
+                  onSelect={setParentCustomerAccountId}
+                  placeholder="Search & select main customer..."
+                  icon="people-outline"
+                />
               </View>
             )}
 
@@ -436,64 +711,6 @@ export default function CustomerFormScreen() {
             )}
           </TouchableOpacity>
         </View>
-
-        <Modal visible={parentModalVisible} animationType="slide" transparent>
-          <SafeAreaView style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Main Customer Account</Text>
-              <TouchableOpacity onPress={() => setParentModalVisible(false)}>
-                <Ionicons name="close" size={24} color={Theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalSearchBox}>
-              <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.modalSearchInput}
-                placeholder="Search main customer by name or code..."
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={parentSearchQuery}
-                onChangeText={setParentSearchQuery}
-                autoFocus
-              />
-            </View>
-
-            <FlatList
-              data={allCustomers
-                .filter(c => c.account !== account && !c.isSubAccount && !c.parentCustomerAccountId)
-                .filter(c => 
-                  c.title.toLowerCase().includes(parentSearchQuery.toLowerCase()) ||
-                  c.account.toLowerCase().includes(parentSearchQuery.toLowerCase())
-                )}
-              keyExtractor={item => item.account}
-              contentContainerStyle={{ padding: Theme.spacing.md }}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalListItem,
-                    item.account === parentCustomerAccountId && styles.modalListItemSelected
-                  ]}
-                  onPress={() => {
-                    setParentCustomerAccountId(item.account);
-                    setParentCustomerTitle(item.title);
-                    setParentModalVisible(false);
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalItemTitle}>{item.title}</Text>
-                    <Text style={styles.modalItemSubtitle}>Account: {item.account}</Text>
-                  </View>
-                  {item.account === parentCustomerAccountId ? (
-                    <Ionicons name="checkmark-circle" size={20} color={Theme.colors.primary} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </SafeAreaView>
-        </Modal>
-
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -529,7 +746,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...Theme.typography.h3,
     color: Theme.colors.text,
-    marginBottom: Theme.spacing.md,
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    marginBottom: Theme.spacing.sm,
   },
   inputGroup: {
     marginBottom: Theme.spacing.md,
@@ -552,6 +774,55 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  emptySupplyText: {
+    ...Theme.typography.caption,
+    color: Theme.colors.textSecondary,
+    textAlign: 'center',
+    paddingVertical: Theme.spacing.sm,
+  },
+  supplyItemCard: {
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.radii.sm,
+    padding: Theme.spacing.sm,
+    marginBottom: Theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  supplyItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  supplyItemTitle: {
+    ...Theme.typography.bodyMedium,
+    color: Theme.colors.primary,
+    fontWeight: '700',
+    flex: 1,
+  },
+  supplyFieldsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  supplyFieldCol: {
+    flex: 1,
+  },
+  supplyFieldLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: 2,
+  },
+  supplyInput: {
+    backgroundColor: Theme.colors.white,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    height: 36,
+    fontSize: 13,
+    color: Theme.colors.text,
   },
   switchRow: {
     flexDirection: 'row',
@@ -635,80 +906,5 @@ const styles = StyleSheet.create({
     color: Theme.colors.textSecondary,
     marginTop: 8,
     fontWeight: '600',
-  },
-  selectorBtn: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.sm,
-    padding: Theme.spacing.sm,
-    backgroundColor: Theme.colors.background,
-    minHeight: 44,
-  },
-  selectorText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  placeholder: {
-    color: Theme.colors.textSecondary,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-    padding: Theme.spacing.md,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-  },
-  modalTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
-  },
-  modalSearchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.white,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.sm,
-    paddingHorizontal: Theme.spacing.sm,
-    marginVertical: Theme.spacing.sm,
-    height: 40,
-  },
-  modalSearchInput: {
-    flex: 1,
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  modalListItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Theme.spacing.md,
-    backgroundColor: Theme.colors.white,
-    borderRadius: Theme.radii.sm,
-    marginBottom: Theme.spacing.xs,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-  },
-  modalListItemSelected: {
-    borderColor: Theme.colors.primary,
-    backgroundColor: Theme.colors.primary + '08',
-  },
-  modalItemTitle: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.text,
-    fontWeight: '600',
-  },
-  modalItemSubtitle: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
   },
 });

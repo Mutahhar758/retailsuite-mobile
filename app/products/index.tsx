@@ -17,10 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
 import { inventoryService, Item } from '../../services/inventoryService';
+import { itemCategoryService } from '../../services/itemCategoryService';
 
 export default function ProductsListScreen() {
   const router = useRouter();
   const [products, setProducts] = useState<Item[]>([]);
+  const [categoryMap, setCategoryMap] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -89,7 +91,7 @@ export default function ProductsListScreen() {
               <View style={styles.row}>
                 <View style={styles.infoCol}>
                   <Text style={styles.labelText}>Category</Text>
-                  <Text style={styles.valueText}>{item.itemCategoryTitle || item.itemCategoryCode}</Text>
+                  <Text style={styles.valueText}>{item.itemCategoryTitle || (item.itemCategoryCode ? categoryMap[item.itemCategoryCode] : undefined) || item.itemCategoryCode || 'General'}</Text>
                 </View>
                 <View style={styles.infoCol}>
                   <Text style={styles.labelText}>Rate</Text>

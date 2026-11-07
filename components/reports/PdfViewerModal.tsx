@@ -109,7 +109,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+        <StatusBar barStyle="light-content" />
 
         {/* Modern In-App Viewer Header */}
         <View style={styles.header}>

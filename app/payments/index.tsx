@@ -114,7 +114,7 @@ export default function PaymentsListScreen() {
           contentContainerStyle={styles.listContainer}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={Theme.colors.primary} style={{ marginVertical: 16 }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={Theme.colors.primary} style={{ marginVertical: 16 }} /> : undefined}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
           }

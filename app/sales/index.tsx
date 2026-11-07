@@ -164,7 +164,7 @@ export default function SalesListScreen() {
               <View style={{ paddingVertical: 16 }}>
                 <ActivityIndicator size="small" color={Theme.colors.primary} />
               </View>
-            ) : null
+            ) : undefined
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

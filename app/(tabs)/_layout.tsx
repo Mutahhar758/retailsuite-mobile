@@ -46,7 +46,7 @@ export default function TabLayout() {
           options={{
             title: 'Dashboard',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="grid-outline" size={size} color={color} />
+              <Ionicons name="grid-outline" size={size} color={color as string} />
             ),
           }}
         />
@@ -56,7 +56,7 @@ export default function TabLayout() {
             title: 'Data Entry',
             href: showDataEntry ? undefined : null as any,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="create-outline" size={size} color={color} />
+              <Ionicons name="create-outline" size={size} color={color as string} />
             ),
           }}
         />
@@ -66,7 +66,7 @@ export default function TabLayout() {
             title: 'Reports',
             href: showReports ? undefined : null as any,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="document-text-outline" size={size} color={color} />
+              <Ionicons name="document-text-outline" size={size} color={color as string} />
             ),
           }}
         />
@@ -76,7 +76,7 @@ export default function TabLayout() {
             title: 'Setup',
             href: showSetup ? undefined : null as any,
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="settings-outline" size={size} color={color} />
+              <Ionicons name="settings-outline" size={size} color={color as string} />
             ),
           }}
         />

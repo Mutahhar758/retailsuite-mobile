@@ -16,10 +16,14 @@
         "backgroundColor": "#F8F8F8",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
       "package": "com.mutahhar11.RetailMobileApp",
-      "permissions": ["android.permission.RECORD_AUDIO"]
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "output": "static",
@@ -27,6 +31,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "RetailSuite requires camera access to scan product barcodes."
+        }
+      ],
       [
         "expo-speech-recognition",
         {

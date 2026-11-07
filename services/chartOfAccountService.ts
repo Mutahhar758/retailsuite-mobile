@@ -10,6 +10,7 @@ export interface ChartOfAccountHeadDto {
   account: string;
   title: string;
   customerCategoryId?: string;
+  customerCategoryTitle?: string;
   parentCustomerAccountId?: string;
   parentCustomerTitle?: string;
   isSubAccount?: boolean;

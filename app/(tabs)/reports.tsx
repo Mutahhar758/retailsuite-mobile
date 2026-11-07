@@ -7,15 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Modal,
-  TextInput,
   Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import dayjs from 'dayjs';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -28,11 +26,14 @@ import {
   AccountStatementLine,
   TrialBalanceLine,
   StockBalanceLine,
+  ProfitByCustomerLine,
+  ProfitByItemLine,
 } from '../../services/reportService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { inventoryService, Item } from '../../services/inventoryService';
 import { itemCategoryService, ItemCategoryDto } from '../../services/itemCategoryService';
 import { PdfViewerModal } from '../../components/reports/PdfViewerModal';
+import { InlineSearchSelect } from '../../components/ui/InlineSearchSelect';
 
 export type ReportCategory = 'accounts' | 'financial' | 'inventory' | 'commercial';
 
@@ -47,7 +48,9 @@ export type ReportType =
   | 'item_ledger'
   | 'customer_bill'
   | 'customer_recovery'
-  | 'milk_comparison';
+  | 'milk_comparison'
+  | 'profit_by_customer'
+  | 'profit_by_item';
 
 interface ReportMeta {
   id: ReportType;
@@ -122,6 +125,26 @@ const ALL_REPORTS: ReportMeta[] = [
     permission: 'Permissions.IncomeSummary.View',
   },
   {
+    id: 'profit_by_customer',
+    title: 'Profit by Customer',
+    shortTitle: 'Customer Profit',
+    tagline: 'Sales, cost & margin',
+    category: 'financial',
+    icon: 'stats-chart-outline',
+    color: '#059669',
+    permission: 'Permissions.ProfitByCustomer.View',
+  },
+  {
+    id: 'profit_by_item',
+    title: 'Profit by Item',
+    shortTitle: 'Item Profit',
+    tagline: 'Product margin analysis',
+    category: 'financial',
+    icon: 'pie-chart-outline',
+    color: '#0d9488',
+    permission: 'Permissions.ProfitByItem.View',
+  },
+  {
     id: 'stock_balance',
     title: 'Stock Balance Report',
     shortTitle: 'Stock Balance',
@@ -184,6 +207,12 @@ export default function ReportsScreen() {
     if (permissions.includes('Permissions.Reports.View')) return true;
     if (permissions.includes(permission)) return true;
     if (permission === 'Permissions.PurchaseSupplyComparison.View' && permissions.includes('Permissions.MilkComparison.View')) return true;
+    if (
+      (permission === 'Permissions.ProfitByCustomer.View' || permission === 'Permissions.ProfitByItem.View') &&
+      permissions.includes('Permissions.IncomeSummary.View')
+    ) {
+      return true;
+    }
     return false;
   };
 
@@ -209,6 +238,7 @@ export default function ReportsScreen() {
 
   const routeParams = useLocalSearchParams<{
     reportType?: string;
+    report?: string;
     autoViewPdf?: string;
     fromDate?: string;
     toDate?: string;
@@ -225,8 +255,9 @@ export default function ReportsScreen() {
   const handledAutoPdfKeyRef = useRef<string>('');
 
   useEffect(() => {
-    if (routeParams.reportType) {
-      const raw = String(routeParams.reportType).toLowerCase().replace(/-/g, '_').trim();
+    const incomingReportParam = routeParams.reportType || routeParams.report;
+    if (incomingReportParam) {
+      const raw = String(incomingReportParam).toLowerCase().replace(/-/g, '_').trim();
       const reportMap: Record<string, ReportType> = {
         balance_sheet: 'balance_sheet',
         trial_balance: 'trial_balance',
@@ -237,6 +268,8 @@ export default function ReportsScreen() {
         account_statement_with_due: 'account_statement_due',
         account_balance: 'account_balance',
         income_summary: 'income_summary',
+        profit_by_customer: 'profit_by_customer',
+        profit_by_item: 'profit_by_item',
         customer_bill: 'customer_bill',
         customer_recovery: 'customer_recovery',
         customer_balance_recovery: 'customer_recovery',
@@ -263,7 +296,9 @@ export default function ReportsScreen() {
       if (parsed.isValid()) setToDate(parsed.toDate());
     }
     if (routeParams.accountId || routeParams.account) {
-      setSelectedAccountId(routeParams.accountId || routeParams.account || '');
+      const acc = routeParams.accountId || routeParams.account || '';
+      setSelectedAccountId(acc);
+      setSelectedCustomerId(acc);
     }
     if (routeParams.customerId || routeParams.customer) {
       setSelectedCustomerId(routeParams.customerId || routeParams.customer || '');
@@ -273,6 +308,7 @@ export default function ReportsScreen() {
     }
   }, [
     routeParams.reportType,
+    routeParams.report,
     routeParams.fromDate,
     routeParams.toDate,
     routeParams.account,
@@ -315,10 +351,6 @@ export default function ReportsScreen() {
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [customerBillLayout, setCustomerBillLayout] = useState<'Thermal' | 'A4'>('Thermal');
   const [balanceFilter, setBalanceFilter] = useState<'All' | 'OutstandingOnly' | 'ClearedOnly' | 'UnpaidOnly'>('All');
-
-  // Search Picker Modal State
-  const [modalType, setModalType] = useState<'account' | 'controlAccount' | 'customer' | 'item' | 'category' | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
 
   // Execution & In-Memory PDF State
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
@@ -417,19 +449,14 @@ export default function ReportsScreen() {
     setToDate(to.toDate());
   };
 
-  /**
-   * Generates and opens the PDF directly into in-memory WebView modal
-   */
   const handleOpenPdfReport = async (override?: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const isOverrideObj = override && typeof override === 'object' && !('nativeEvent' in override);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const activeReportId: ReportType = (isOverrideObj && override.reportId) || selectedReportId;
     const activeFrom: Date = (isOverrideObj && override.from) || fromDate;
     const activeTo: Date = (isOverrideObj && override.to) || toDate;
 
-    // Entity fallbacks so it never fails if specific account is not explicitly spoken
     const activeAccountId: string =
       (isOverrideObj && override.accountId) ||
       selectedAccountId ||
@@ -442,19 +469,17 @@ export default function ReportsScreen() {
 
     const activeCustomerId: string =
       (isOverrideObj && override.customerId) ||
-      selectedCustomerId ||
-      (customerAccounts.length > 0 ? customerAccounts[0].account : '');
+      selectedCustomerId;
 
     const activeItemId: string =
       (isOverrideObj && override.itemId) ||
-      selectedItemId ||
-      (items.length > 0 ? items[0].id : '');
+      selectedItemId;
 
     const activeCategoryCode: string =
       (isOverrideObj && override.categoryCode) || selectedCategoryCode;
 
     const fromStr = dayjs(activeFrom).format('YYYY-MM-DD');
-    const toStr = dayjs(toDate).format('YYYY-MM-DD');
+    const toStr = dayjs(activeTo).format('YYYY-MM-DD');
 
     setPdfLoading(true);
     setPdfBase64(null);
@@ -479,7 +504,7 @@ export default function ReportsScreen() {
 
         case 'account_statement_due':
           if (!activeAccountId) throw new Error('Please select an account.');
-          filename = `AccountStatementWithDue_${selectedAccountId}_${fromStr}_${toStr}.pdf`;
+          filename = `AccountStatementWithDue_${activeAccountId}_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getAccountStatementWithDuePdf({
             fromDate: fromStr,
             toDate: toStr,
@@ -520,6 +545,25 @@ export default function ReportsScreen() {
           });
           break;
 
+        case 'profit_by_customer':
+          filename = `ProfitByCustomer_${fromStr}_${toStr}.pdf`;
+          base64 = await reportService.getProfitByCustomerPdf({
+            fromDate: fromStr,
+            toDate: toStr,
+            customerAccount: activeCustomerId || undefined,
+          });
+          break;
+
+        case 'profit_by_item':
+          filename = `ProfitByItem_${fromStr}_${toStr}.pdf`;
+          base64 = await reportService.getProfitByItemPdf({
+            fromDate: fromStr,
+            toDate: toStr,
+            itemId: activeItemId || undefined,
+            categoryId: activeCategoryCode || undefined,
+          });
+          break;
+
         case 'stock_balance':
           filename = `StockBalance_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getStockBalancePdf({
@@ -541,18 +585,19 @@ export default function ReportsScreen() {
           });
           break;
 
-        case 'customer_bill':
-          if (!activeCustomerId) throw new Error('Please select a customer.');
-          filename = `CustomerBill_${activeCustomerId}_${fromStr}_${toStr}.pdf`;
-          // Thermal View format by default
+        case 'customer_bill': {
+          const billCust = activeCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
+          if (!billCust) throw new Error('Please select a customer.');
+          filename = `CustomerBill_${billCust}_${fromStr}_${toStr}.pdf`;
           base64 = await reportService.getCustomerBillPdf({
             fromDate: fromStr,
             toDate: toStr,
-            account: activeCustomerId,
+            account: billCust,
             dateBasis,
             layout: customerBillLayout,
           });
           break;
+        }
 
         case 'customer_recovery':
           filename = `CustomerBalanceRecovery_${fromStr}_${toStr}.pdf`;
@@ -588,16 +633,16 @@ export default function ReportsScreen() {
     }
   };
 
-  // Auto-launch PDF if directed by AI Assistant or route parameter
   useEffect(() => {
     if (initialLoading) return;
+    const incomingReportParam = routeParams.reportType || routeParams.report;
 
-    if (routeParams.autoViewPdf === 'true' || routeParams.reportType) {
-      const autoKey = `${routeParams.reportType}_${routeParams.fromDate}_${routeParams.toDate}_${routeParams.account || routeParams.accountId}_${routeParams.autoViewPdf}_${routeParams.t || ''}`;
+    if (routeParams.autoViewPdf === 'true' || incomingReportParam) {
+      const autoKey = `${incomingReportParam}_${routeParams.fromDate}_${routeParams.toDate}_${routeParams.account || routeParams.accountId}_${routeParams.autoViewPdf}_${routeParams.t || ''}`;
       if (handledAutoPdfKeyRef.current !== autoKey) {
         handledAutoPdfKeyRef.current = autoKey;
 
-        const raw = String(routeParams.reportType || '').toLowerCase().replace(/-/g, '_').trim();
+        const raw = String(incomingReportParam || '').toLowerCase().replace(/-/g, '_').trim();
         const repMap: Record<string, ReportType> = {
           balance_sheet: 'balance_sheet',
           trial_balance: 'trial_balance',
@@ -608,6 +653,8 @@ export default function ReportsScreen() {
           account_statement_with_due: 'account_statement_due',
           account_balance: 'account_balance',
           income_summary: 'income_summary',
+          profit_by_customer: 'profit_by_customer',
+          profit_by_item: 'profit_by_item',
           customer_bill: 'customer_bill',
           customer_recovery: 'customer_recovery',
           customer_balance_recovery: 'customer_recovery',
@@ -620,7 +667,7 @@ export default function ReportsScreen() {
         const targetTo = routeParams.toDate && dayjs(routeParams.toDate).isValid() ? dayjs(routeParams.toDate).toDate() : toDate;
         const targetAcc = routeParams.accountId || routeParams.account || selectedAccountId;
         const targetControlAcc = routeParams.controlAccountId || selectedControlAccountId;
-        const targetCust = routeParams.customerId || routeParams.customer || selectedCustomerId;
+        const targetCust = routeParams.customerId || routeParams.customer || routeParams.account || selectedCustomerId;
         const targetItem = routeParams.itemId || routeParams.item || selectedItemId;
 
         setSelectedReportId(targetReportId);
@@ -643,6 +690,7 @@ export default function ReportsScreen() {
     initialLoading,
     routeParams.autoViewPdf,
     routeParams.reportType,
+    routeParams.report,
     routeParams.fromDate,
     routeParams.toDate,
     routeParams.account,
@@ -660,9 +708,6 @@ export default function ReportsScreen() {
     detailAccounts,
   ]);
 
-  /**
-   * Fetches raw JSON data and presents instant interactive metrics on screen
-   */
   const handleLoadDataBreakdown = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const fromStr = dayjs(fromDate).format('YYYY-MM-DD');
@@ -670,8 +715,8 @@ export default function ReportsScreen() {
 
     const activeAccountId = selectedAccountId || (detailAccounts.length > 0 ? detailAccounts[0].account : '');
     const activeControlAccountId = selectedControlAccountId || (controlAccounts.length > 0 ? controlAccounts[0].account : '');
-    const activeCustomerId = selectedCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
-    const activeItemId = selectedItemId || (items.length > 0 ? items[0].id : '');
+    const activeCustomerId = selectedCustomerId;
+    const activeItemId = selectedItemId;
     const activeCategoryCode = selectedCategoryCode;
 
     setDataLoading(true);
@@ -730,6 +775,23 @@ export default function ReportsScreen() {
           });
           break;
 
+        case 'profit_by_customer':
+          data = await reportService.getProfitByCustomer({
+            fromDate: fromStr,
+            toDate: toStr,
+            customerAccount: activeCustomerId || undefined,
+          });
+          break;
+
+        case 'profit_by_item':
+          data = await reportService.getProfitByItem({
+            fromDate: fromStr,
+            toDate: toStr,
+            itemId: activeItemId || undefined,
+            categoryId: activeCategoryCode || undefined,
+          });
+          break;
+
         case 'stock_balance':
           data = await reportService.getStockBalance({
             fromDate: fromStr,
@@ -740,25 +802,29 @@ export default function ReportsScreen() {
           });
           break;
 
-        case 'item_ledger':
-          if (!activeItemId) throw new Error('Please select a product item.');
+        case 'item_ledger': {
+          const itemTarget = activeItemId || (items.length > 0 ? items[0].id : '');
+          if (!itemTarget) throw new Error('Please select a product item.');
           data = await reportService.getStockLedger({
             fromDate: fromStr,
             toDate: toStr,
-            fkItem: activeItemId,
+            fkItem: itemTarget,
             showCostPrice,
           });
           break;
+        }
 
-        case 'customer_bill':
-          if (!activeCustomerId) throw new Error('Please select a customer.');
+        case 'customer_bill': {
+          const custTarget = activeCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
+          if (!custTarget) throw new Error('Please select a customer.');
           data = await reportService.getCustomerBill({
             fromDate: fromStr,
             toDate: toStr,
-            account: activeCustomerId,
+            account: custTarget,
             dateBasis,
           });
           break;
+        }
 
         case 'customer_recovery':
           data = await reportService.getCustomerBalanceRecovery({
@@ -791,36 +857,35 @@ export default function ReportsScreen() {
     }
   };
 
-  // Filter items in modal picker
-  const filteredModalItems = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (modalType === 'account') {
-      return detailAccounts.filter(
-        (a) => a.title.toLowerCase().includes(q) || a.account.toLowerCase().includes(q)
-      );
-    }
-    if (modalType === 'controlAccount') {
-      return controlAccounts.filter(
-        (a) => a.title.toLowerCase().includes(q) || a.account.toLowerCase().includes(q)
-      );
-    }
-    if (modalType === 'customer') {
-      return customerAccounts.filter(
-        (a) => a.title.toLowerCase().includes(q) || a.account.toLowerCase().includes(q)
-      );
-    }
-    if (modalType === 'item') {
-      return items.filter(
-        (i) => i.title.toLowerCase().includes(q) || (i.barcode && i.barcode.toLowerCase().includes(q))
-      );
-    }
-    if (modalType === 'category') {
-      return categories.filter(
-        (c) => c.title.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-      );
-    }
-    return [];
-  }, [modalType, searchQuery, detailAccounts, controlAccounts, customerAccounts, items, categories]);
+  const detailAccountOptions = useMemo(() => detailAccounts.map(a => ({
+    value: a.account,
+    label: a.title,
+    subtitle: a.account
+  })), [detailAccounts]);
+
+  const controlAccountOptions = useMemo(() => controlAccounts.map(a => ({
+    value: a.account,
+    label: a.title,
+    subtitle: a.account
+  })), [controlAccounts]);
+
+  const customerAccountOptions = useMemo(() => customerAccounts.map(c => ({
+    value: c.account,
+    label: c.title,
+    subtitle: c.account
+  })), [customerAccounts]);
+
+  const itemOptions = useMemo(() => items.map(i => ({
+    value: i.id,
+    label: i.title,
+    subtitle: i.id
+  })), [items]);
+
+  const categoryOptions = useMemo(() => categories.map(c => ({
+    value: c.code,
+    label: c.title,
+    subtitle: c.code
+  })), [categories]);
 
   if (initialLoading) {
     return (
@@ -888,7 +953,7 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Modern Compact Visual Report Cards */}
         <ScrollView
           horizontal
@@ -934,7 +999,7 @@ export default function ReportsScreen() {
             <Text style={styles.cardHeaderText}>Report Parameters</Text>
           </View>
 
-          {/* Quick Date Shortcuts (single compact row) */}
+          {/* Quick Date Shortcuts */}
           {selectedReportId !== 'balance_sheet' && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shortcutContainer}>
               {[
@@ -1009,76 +1074,52 @@ export default function ReportsScreen() {
             </View>
           </View>
 
-          {/* Account Statement Detail Account Picker */}
+          {/* Inline Account Statement Detail Account Picker */}
           {(selectedReportId === 'account_statement' || selectedReportId === 'account_statement_due') && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Account</Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setModalType('account');
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="wallet-outline" size={16} color="#6366f1" style={{ marginRight: 6 }} />
-                <Text style={styles.selectorValueText} numberOfLines={1}>
-                  {detailAccounts.find((a) => a.account === selectedAccountId)?.title ||
-                    selectedAccountId ||
-                    'Select Account'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+              <InlineSearchSelect
+                label="Account"
+                options={detailAccountOptions}
+                value={selectedAccountId}
+                onSelect={setSelectedAccountId}
+                placeholder="Search & Select Account..."
+                icon="wallet-outline"
+              />
             </View>
           )}
 
-          {/* Account Balance Report Control Head Picker */}
+          {/* Inline Account Balance Report Control Head Picker */}
           {selectedReportId === 'account_balance' && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Control Head Account</Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setModalType('controlAccount');
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="briefcase-outline" size={16} color="#3b82f6" style={{ marginRight: 6 }} />
-                <Text style={styles.selectorValueText} numberOfLines={1}>
-                  {controlAccounts.find((a) => a.account === selectedControlAccountId)?.title ||
-                    selectedControlAccountId ||
-                    'Select Control Head'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+              <InlineSearchSelect
+                label="Control Head Account"
+                options={controlAccountOptions}
+                value={selectedControlAccountId}
+                onSelect={setSelectedControlAccountId}
+                placeholder="Search & Select Control Head..."
+                icon="briefcase-outline"
+              />
             </View>
           )}
 
-          {/* Customer Bill / Recovery Customer Picker */}
-          {(selectedReportId === 'customer_bill' || selectedReportId === 'customer_recovery') && (
+          {/* Inline Customer Picker */}
+          {(selectedReportId === 'customer_bill' ||
+            selectedReportId === 'customer_recovery' ||
+            selectedReportId === 'profit_by_customer') && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Customer</Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setModalType('customer');
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="person-outline" size={16} color="#ec4899" style={{ marginRight: 6 }} />
-                <Text style={styles.selectorValueText} numberOfLines={1}>
-                  {selectedCustomerId
-                    ? customerAccounts.find((c) => c.account === selectedCustomerId)?.title || selectedCustomerId
-                    : 'All Customers (Combined)'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+              <InlineSearchSelect
+                label={selectedReportId === 'customer_bill' ? 'Customer *' : 'Customer (Leave empty for All)'}
+                options={customerAccountOptions}
+                value={selectedCustomerId}
+                onSelect={setSelectedCustomerId}
+                placeholder={selectedReportId === 'customer_bill' ? 'Select Customer...' : 'All Customers (Combined)...'}
+                icon="person-outline"
+                clearable={selectedReportId !== 'customer_bill'}
+              />
             </View>
           )}
 
-          {/* Customer Bill Layout (Thermal view default) */}
+          {/* Customer Bill Layout */}
           {selectedReportId === 'customer_bill' && (
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Print Format</Text>
@@ -1115,51 +1156,35 @@ export default function ReportsScreen() {
             </View>
           )}
 
-          {/* Stock Balance Category Picker */}
-          {selectedReportId === 'stock_balance' && (
+          {/* Inline Stock Balance / Profit by Item Category Picker */}
+          {(selectedReportId === 'stock_balance' || selectedReportId === 'profit_by_item') && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Category</Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setModalType('category');
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="grid-outline" size={16} color="#f59e0b" style={{ marginRight: 6 }} />
-                <Text style={styles.selectorValueText} numberOfLines={1}>
-                  {selectedCategoryCode
-                    ? categories.find((c) => c.code === selectedCategoryCode)?.title || selectedCategoryCode
-                    : 'All Categories'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+              <InlineSearchSelect
+                label="Category (Optional)"
+                options={categoryOptions}
+                value={selectedCategoryCode}
+                onSelect={setSelectedCategoryCode}
+                placeholder="All Categories..."
+                icon="grid-outline"
+                clearable
+              />
             </View>
           )}
 
-          {/* Item Ledger / Purchase vs Supply Item Picker */}
-          {(selectedReportId === 'item_ledger' || selectedReportId === 'milk_comparison') && (
+          {/* Inline Item Picker */}
+          {(selectedReportId === 'item_ledger' ||
+            selectedReportId === 'milk_comparison' ||
+            selectedReportId === 'profit_by_item') && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                {selectedReportId === 'item_ledger' ? 'Product Item' : 'Select Item'}
-              </Text>
-              <TouchableOpacity
-                style={styles.selectorButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setModalType('item');
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="cube-outline" size={16} color="#f97316" style={{ marginRight: 6 }} />
-                <Text style={styles.selectorValueText} numberOfLines={1}>
-                  {selectedItemId
-                    ? items.find((i) => i.id === selectedItemId)?.title || selectedItemId
-                    : 'Select Item'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+              <InlineSearchSelect
+                label={selectedReportId === 'item_ledger' ? 'Product Item *' : 'Product Item (Optional)'}
+                options={itemOptions}
+                value={selectedItemId}
+                onSelect={setSelectedItemId}
+                placeholder={selectedReportId === 'item_ledger' ? 'Select Product Item...' : 'All Items...'}
+                icon="cube-outline"
+                clearable={selectedReportId !== 'item_ledger'}
+              />
             </View>
           )}
 
@@ -1255,7 +1280,6 @@ export default function ReportsScreen() {
 
           {/* Action Buttons Row */}
           <View style={styles.actionRow}>
-            {/* Primary Action: VIEW PDF */}
             <TouchableOpacity
               style={styles.primaryPdfBtn}
               onPress={handleOpenPdfReport}
@@ -1279,7 +1303,6 @@ export default function ReportsScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Secondary Action: VIEW BREAKDOWN */}
             <TouchableOpacity
               style={styles.secondaryDataBtn}
               onPress={handleLoadDataBreakdown}
@@ -1391,6 +1414,63 @@ export default function ReportsScreen() {
               </View>
             )}
 
+            {(activeDataView === 'profit_by_customer' || activeDataView === 'profit_by_item') && reportData && (
+              <View>
+                <View style={styles.metricGrid}>
+                  <View style={[styles.metricBox, { backgroundColor: '#eef2ff' }]}>
+                    <Text style={styles.metricLabel}>Total Sales</Text>
+                    <Text style={[styles.metricValue, { color: '#4338ca' }]}>
+                      Rs. {(reportData.totalSales || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[styles.metricBox, { backgroundColor: '#fef2f2' }]}>
+                    <Text style={styles.metricLabel}>Total Cost</Text>
+                    <Text style={[styles.metricValue, { color: '#b91c1c' }]}>
+                      Rs. {(reportData.totalCost || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[styles.metricBox, { backgroundColor: '#ecfdf5' }]}>
+                    <Text style={styles.metricLabel}>Gross Profit</Text>
+                    <Text style={[styles.metricValue, { color: '#047857' }]}>
+                      Rs. {(reportData.grossProfit || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[styles.metricBox, { backgroundColor: '#f0fdf4' }]}>
+                    <Text style={styles.metricLabel}>Gross Margin</Text>
+                    <Text style={[styles.metricValue, { color: '#15803d' }]}>
+                      {(reportData.grossMarginPct || 0).toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+
+                {Array.isArray(reportData.lines) && reportData.lines.length > 0 && (
+                  <>
+                    <Text style={[styles.inputLabel, { marginTop: 12, marginBottom: 6 }]}>
+                      Top Breakdown ({reportData.lines.length} rows)
+                    </Text>
+                    {reportData.lines.slice(0, 10).map((row: ProfitByCustomerLine & ProfitByItemLine, idx: number) => (
+                      <View key={idx} style={styles.lineItemRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.lineParticular} numberOfLines={1}>
+                            {row.accountTitle || row.itemTitle}
+                          </Text>
+                          <Text style={styles.lineSub}>
+                            Sales: Rs. {(row.totalSales || 0).toLocaleString()} • Cost: Rs. {(row.totalCost || 0).toLocaleString()}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: (row.grossProfit || 0) >= 0 ? '#047857' : '#b91c1c', fontWeight: '700', fontSize: 13 }}>
+                            Rs. {(row.grossProfit || 0).toLocaleString()}
+                          </Text>
+                          <Text style={styles.lineSub}>{(row.grossMarginPct || 0).toFixed(1)}%</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+
             {activeDataView === 'stock_balance' && Array.isArray(reportData) && (
               <View>
                 {(() => {
@@ -1435,13 +1515,13 @@ export default function ReportsScreen() {
                   <View style={[styles.metricBox, { backgroundColor: '#e0f2fe' }]}>
                     <Text style={styles.metricLabel}>Purchase</Text>
                     <Text style={[styles.metricValue, { color: '#0369a1' }]}>
-                      {reportData.summary.totalPurchaseQty.toLocaleString()} Ltr
+                      {reportData.summary.totalPurchaseQty.toLocaleString()}
                     </Text>
                   </View>
                   <View style={[styles.metricBox, { backgroundColor: '#f0fdf4' }]}>
                     <Text style={styles.metricLabel}>Dispatched</Text>
                     <Text style={[styles.metricValue, { color: '#15803d' }]}>
-                      {reportData.summary.totalDispatchedQty.toLocaleString()} Ltr
+                      {reportData.summary.totalDispatchedQty.toLocaleString()}
                     </Text>
                   </View>
                 </View>
@@ -1505,118 +1585,6 @@ export default function ReportsScreen() {
           setPdfBase64(null);
         }}
       />
-
-      {/* SEARCHABLE SELECTION MODAL */}
-      <Modal
-        visible={modalType !== null}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setModalType(null)}
-      >
-        <SafeAreaView style={styles.modalSafeArea}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {modalType === 'account'
-                ? 'Select Account'
-                : modalType === 'controlAccount'
-                ? 'Select Control Head'
-                : modalType === 'customer'
-                ? 'Select Customer'
-                : modalType === 'item'
-                ? 'Select Product'
-                : 'Select Category'}
-            </Text>
-            <TouchableOpacity onPress={() => setModalType(null)} style={styles.modalCloseBtn}>
-              <Ionicons name="close" size={20} color={Theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search Bar */}
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={16} color={Theme.colors.textSecondary} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-            />
-          </View>
-
-          <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
-            {modalType === 'customer' && selectedReportId === 'customer_recovery' && (
-              <TouchableOpacity
-                style={[styles.modalItem, !selectedCustomerId && styles.modalItemActive]}
-                onPress={() => {
-                  setSelectedCustomerId('');
-                  setModalType(null);
-                }}
-              >
-                <View>
-                  <Text style={[styles.modalItemTitle, !selectedCustomerId && { color: Theme.colors.primary }]}>
-                    All Customers (Combined)
-                  </Text>
-                </View>
-                {!selectedCustomerId && <Ionicons name="checkmark" size={18} color={Theme.colors.primary} />}
-              </TouchableOpacity>
-            )}
-
-            {modalType === 'category' && (
-              <TouchableOpacity
-                style={[styles.modalItem, !selectedCategoryCode && styles.modalItemActive]}
-                onPress={() => {
-                  setSelectedCategoryCode('');
-                  setModalType(null);
-                }}
-              >
-                <View>
-                  <Text style={[styles.modalItemTitle, !selectedCategoryCode && { color: Theme.colors.primary }]}>
-                    All Categories
-                  </Text>
-                </View>
-                {!selectedCategoryCode && <Ionicons name="checkmark" size={18} color={Theme.colors.primary} />}
-              </TouchableOpacity>
-            )}
-
-            {filteredModalItems.map((item: any, idx: number) => {
-              const code = item.account || item.id || item.code;
-              const title = item.title;
-              const isSelected =
-                (modalType === 'account' && selectedAccountId === code) ||
-                (modalType === 'controlAccount' && selectedControlAccountId === code) ||
-                (modalType === 'customer' && selectedCustomerId === code) ||
-                (modalType === 'item' && selectedItemId === code) ||
-                (modalType === 'category' && selectedCategoryCode === code);
-
-              return (
-                <TouchableOpacity
-                  key={idx}
-                  style={[styles.modalItem, isSelected && styles.modalItemActive]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (modalType === 'account') setSelectedAccountId(code);
-                    if (modalType === 'controlAccount') setSelectedControlAccountId(code);
-                    if (modalType === 'customer') setSelectedCustomerId(code);
-                    if (modalType === 'item') setSelectedItemId(code);
-                    if (modalType === 'category') setSelectedCategoryCode(code);
-                    setModalType(null);
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.modalItemTitle, isSelected && { color: Theme.colors.primary }]}>
-                      {title}
-                    </Text>
-                    <Text style={styles.modalItemSubtitle}>{code}</Text>
-                  </View>
-                  {isSelected && <Ionicons name="checkmark" size={18} color={Theme.colors.primary} />}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -2036,75 +2004,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#64748b',
-  },
-  modalSafeArea: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  modalCloseBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    margin: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#0f172a',
-    padding: 0,
-  },
-  modalList: {
-    flex: 1,
-    paddingHorizontal: 10,
-  },
-  modalItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f8fafc',
-  },
-  modalItemActive: {
-    backgroundColor: '#eef2ff',
-  },
-  modalItemTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  modalItemSubtitle: {
-    fontSize: 11,
-    color: '#94a3b8',
-    marginTop: 1,
   },
 });

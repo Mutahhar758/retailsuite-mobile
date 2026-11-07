@@ -15,17 +15,25 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Theme } from '../../constants/theme';
 import { customerService, CustomerResponse } from '../../services/customerService';
+import { customerCategoryService } from '../../services/customerCategoryService';
 
 export default function CustomersListScreen() {
   const router = useRouter();
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
+  const [categoryMap, setCategoryMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     try {
-      const data = await customerService.getCustomers();
+      const [data, catLookup] = await Promise.all([
+        customerService.getCustomers(),
+        customerCategoryService.getLookup().catch(() => [])
+      ]);
       setCustomers(data);
+      const catMap: Record<string, string> = {};
+      for (const cat of catLookup || []) { catMap[cat.code] = cat.title; }
+      setCategoryMap(catMap);
     } catch (error) {
       console.error('Failed to fetch customers', error);
     } finally {
@@ -64,6 +72,13 @@ export default function CustomersListScreen() {
             <View style={styles.cardHeader}>
               <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
               <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {Boolean(item.customerCategoryTitle || (item.customerCategoryId && categoryMap[item.customerCategoryId])) && (
+                  <View style={[styles.statusBadge, { backgroundColor: '#f0fdf4' }]}>
+                    <Text style={[styles.statusText, { color: '#15803d' }]}>
+                      {item.customerCategoryTitle || categoryMap[item.customerCategoryId!]}
+                    </Text>
+                  </View>
+                )}
                 {Boolean(item.isSubAccount || item.parentCustomerAccountId) && (
                   <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe' }]}>
                     <Text style={[styles.statusText, { color: '#0369a1' }]}>

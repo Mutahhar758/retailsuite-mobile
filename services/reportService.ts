@@ -191,6 +191,74 @@ export interface PurchaseSupplyComparisonResponse {
   summary: PurchaseSupplyComparisonSummary;
 }
 
+export interface ProfitByCustomerDetailLine {
+  vDate: string;
+  vNo: string;
+  vType: string;
+  itemId: string;
+  itemTitle: string;
+  unit: string;
+  qty: number;
+  saleRate: number;
+  saleAmount: number;
+  costPrice: number;
+  costAmount: number;
+  profit: number;
+  marginPct: number;
+}
+
+export interface ProfitByCustomerLine {
+  accountId: string;
+  accountTitle: string;
+  city: string;
+  phone: string;
+  invoiceCount: number;
+  totalQty: number;
+  totalSales: number;
+  totalCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  details?: ProfitByCustomerDetailLine[];
+}
+
+export interface ProfitByCustomerResponse {
+  fromDate: string;
+  toDate: string;
+  totalSales: number;
+  totalCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  totalQtySold: number;
+  customerCount: number;
+  lines: ProfitByCustomerLine[];
+}
+
+export interface ProfitByItemLine {
+  itemId: string;
+  itemTitle: string;
+  category: string;
+  unit: string;
+  totalQty: number;
+  avgSaleRate: number;
+  totalSales: number;
+  avgCostRate: number;
+  totalCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+}
+
+export interface ProfitByItemResponse {
+  fromDate: string;
+  toDate: string;
+  totalSales: number;
+  totalCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  totalQtySold: number;
+  itemCount: number;
+  lines: ProfitByItemLine[];
+}
+
 async function fetchPdfBase64(url: string, params?: any): Promise<string> {
   const response = await api.get(url, {
     params,
@@ -315,5 +383,23 @@ export const reportService = {
     balanceFilter?: 'All' | 'OutstandingOnly' | 'ClearedOnly' | 'UnpaidOnly';
   }): Promise<string> {
     return fetchPdfBase64('/api/reports/customer-balance-recovery/pdf', params);
+  },
+
+  // 12. Profit By Customer
+  async getProfitByCustomer(params: { fromDate: string; toDate: string; customerAccount?: string }) {
+    const response = await api.get('/api/reports/profit-by-customer', { params });
+    return response.data.body as ProfitByCustomerResponse;
+  },
+  async getProfitByCustomerPdf(params: { fromDate: string; toDate: string; customerAccount?: string }): Promise<string> {
+    return fetchPdfBase64('/api/reports/profit-by-customer/pdf', params);
+  },
+
+  // 13. Profit By Item
+  async getProfitByItem(params: { fromDate: string; toDate: string; itemId?: string; categoryId?: string }) {
+    const response = await api.get('/api/reports/profit-by-item', { params });
+    return response.data.body as ProfitByItemResponse;
+  },
+  async getProfitByItemPdf(params: { fromDate: string; toDate: string; itemId?: string; categoryId?: string }): Promise<string> {
+    return fetchPdfBase64('/api/reports/profit-by-item/pdf', params);
   },
 };

@@ -41,6 +41,53 @@ export interface SaleLineDto {
   lastModifiedOn?: string;
 }
 
+export interface SalePaymentRequest {
+  seq: number;
+  accountId: string;
+  amount: number;
+  reference?: string;
+  checkNum?: string;
+  checkDate?: string;
+}
+
+export interface SalePaymentResponse {
+  seq: number;
+  accountId: string;
+  accountTitle?: string;
+  amount: number;
+  reference?: string;
+  checkNum?: string;
+  checkDate?: string;
+}
+
+export interface CustomerItemSaleHistoryEntry {
+  voucherNo: string;
+  vType: string;
+  date: string;
+  qty: number;
+  unit?: string;
+  rate: number;
+  discount: number;
+  carriage: number;
+  amount: number;
+  secQty?: number;
+  secRate?: number;
+}
+
+export interface CustomerItemPriceHistoryResponse {
+  accountId: string;
+  itemId: string;
+  hasHistory: boolean;
+  lastSaleDate?: string;
+  lastRate?: number;
+  lastQty?: number;
+  lastDiscount?: number;
+  lastSecRate?: number;
+  lastVoucherNo?: string;
+  lastVType?: string;
+  recentSales: CustomerItemSaleHistoryEntry[];
+}
+
 export interface SaleLineRequest {
   seq: number;
   itemId: string;
@@ -55,6 +102,7 @@ export interface SaleLineRequest {
   qtyInPack?: number | null;
   packing?: number | null;
   packQty?: number;
+  imei?: string;
 }
 
 export interface SaleCreateRequest {
@@ -65,6 +113,7 @@ export interface SaleCreateRequest {
   cashReceipt?: number;
   cashBack?: number;
   lines: SaleLineRequest[];
+  payments?: SalePaymentRequest[];
 }
 
 export interface SaleUpdateRequest {
@@ -75,6 +124,7 @@ export interface SaleUpdateRequest {
   cashReceipt?: number;
   cashBack?: number;
   lines: SaleLineRequest[];
+  payments?: SalePaymentRequest[];
 }
 
 export const saleService = {
@@ -100,6 +150,18 @@ export const saleService = {
   async getDetail(voucherNo: string) {
     const response = await api.get(`/api/sales/${voucherNo}`);
     return response.data.body as SaleLineDto[];
+  },
+
+  async getPayments(voucherNo: string) {
+    const response = await api.get(`/api/sales/${voucherNo}/payments`);
+    return (response.data.body ?? []) as SalePaymentResponse[];
+  },
+
+  async getCustomerItemHistory(accountId: string, itemId: string, limit: number = 10) {
+    const response = await api.get('/api/sales/customer-history', {
+      params: { accountId, itemId, limit },
+    });
+    return response.data.body as CustomerItemPriceHistoryResponse;
   },
 
   async create(request: SaleCreateRequest) {

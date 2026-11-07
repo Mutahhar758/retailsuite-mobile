@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,28 +10,39 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
 import { extractErrorMessage } from '../../services/api';
 import { paymentService, PaymentLineRequest } from '../../services/paymentService';
-import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
+import {
+  chartOfAccountService,
+  ChartOfAccountHeadDto,
+} from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
+import { InlineSearchSelect, InlineSelectOption } from '../../components/ui/InlineSearchSelect';
+import { useKeyboard } from '../../hooks/useKeyboard';
+
+interface EditablePaymentLine extends PaymentLineRequest {
+  showCheque?: boolean;
+}
 
 export default function PaymentFormScreen() {
-  const { voucherNo, mode, draftData } = useLocalSearchParams<{ voucherNo: string; mode?: string; draftData?: string }>();
+  const { voucherNo, mode, draftData } = useLocalSearchParams<{
+    voucherNo: string;
+    mode?: string;
+    draftData?: string;
+  }>();
   const router = useRouter();
-  const isEdit = voucherNo && voucherNo !== 'new' && mode !== 'copy';
+  const isEdit = Boolean(voucherNo && voucherNo !== 'new' && mode !== 'copy');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
   // Lookups
   const [cashBankAccounts, setCashBankAccounts] = useState<ChartOfAccountHeadDto[]>([]);
   const [detailAccounts, setDetailAccounts] = useState<ChartOfAccountHeadDto[]>([]);
@@ -45,52 +56,68 @@ export default function PaymentFormScreen() {
   const [showClearingDatePicker, setShowClearingDatePicker] = useState(false);
   const [cashBankAccount, setCashBankAccount] = useState('');
   const [narration, setNarration] = useState('');
-  
-  // Lines State
-  const [lines, setLines] = useState<PaymentLineRequest[]>([]);
-  
-  // Line Modal State
-  const [lineModalVisible, setLineModalVisible] = useState(false);
-  const [currentLine, setCurrentLine] = useState<Partial<PaymentLineRequest>>({});
-  const [showCheckDatePicker, setShowCheckDatePicker] = useState(false);
-  const [currentCheckDate, setCurrentCheckDate] = useState(new Date());
+  const [narrationExpanded, setNarrationExpanded] = useState(false);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
-  // Searchable Modal State
-  const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'cashBank' | 'narration' | 'account'>('cashBank');
-  const [searchQuery, setSearchQuery] = useState('');
+  // Lines State
+  const [lines, setLines] = useState<EditablePaymentLine[]>([]);
+  const [activeCheckDateSeq, setActiveCheckDateSeq] = useState<number | null>(null);
 
   useEffect(() => {
     fetchLookups();
   }, []);
+
+  const fetchBalance = async (accountId: string) => {
+    if (!accountId || balances[accountId] !== undefined) return;
+    try {
+      const bal = await paymentService.getAccountBalance(accountId);
+      setBalances((prev) => ({ ...prev, [accountId]: bal }));
+    } catch {
+      // ignore balance error
+    }
+  };
 
   const fetchLookups = async () => {
     try {
       const [cbAccs, detAccs, narrs] = await Promise.all([
         chartOfAccountService.getCashBankAccounts(),
         chartOfAccountService.getDetailAccounts(),
-        narrationService.getActiveNarrationsLookup()
+        narrationService.getActiveNarrationsLookup(),
       ]);
-      setCashBankAccounts(cbAccs);
-      setDetailAccounts(detAccs);
-      setNarrations(narrs);
-      
+      const safeCb = cbAccs || [];
+      setCashBankAccounts(safeCb);
+      setDetailAccounts(detAccs || []);
+      setNarrations(narrs || []);
+
       if (isEdit) {
         await loadVoucherDetails();
       } else {
+        const defaultCash =
+          safeCb.find((a) => a.title.toLowerCase().includes('cash in hand')) ||
+          safeCb.find((a) => a.title.toLowerCase().includes('cash')) ||
+          safeCb[0];
+        if (defaultCash) {
+          setCashBankAccount(defaultCash.account);
+          fetchBalance(defaultCash.account);
+        }
+
         if (draftData) {
           try {
             const parsed = typeof draftData === 'string' ? JSON.parse(draftData) : draftData;
             if (parsed.cashBankAccountId || parsed.cashAccount) {
-              setCashBankAccount(parsed.cashBankAccountId || parsed.cashAccount);
+              const cbId = parsed.cashBankAccountId || parsed.cashAccount;
+              setCashBankAccount(cbId);
+              fetchBalance(cbId);
             }
             if (parsed.date) {
               const d = new Date(parsed.date);
               if (!isNaN(d.getTime())) setDate(d);
             }
             if (parsed.amount || parsed.accountId || parsed.vendorId || parsed.account) {
-              const accId = parsed.accountId || parsed.vendorId || parsed.account || '';
+              const accId =
+                parsed.accountId || parsed.vendorId || parsed.account || '';
               const amt = Number(parsed.amount) || 0;
+              if (accId) fetchBalance(accId);
               setLines([
                 {
                   seq: 1,
@@ -98,8 +125,8 @@ export default function PaymentFormScreen() {
                   amount: amt,
                   checkNum: '',
                   checkDate: '',
-                  remarks: parsed.remarks || ''
-                }
+                  remarks: parsed.remarks || '',
+                },
               ]);
             }
           } catch (e) {
@@ -108,7 +135,7 @@ export default function PaymentFormScreen() {
         }
         setLoading(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load form data.');
       setLoading(false);
     }
@@ -123,22 +150,22 @@ export default function PaymentFormScreen() {
         setClearingDate(first.clearingDate ? new Date(first.clearingDate) : null);
         setCashBankAccount(first.cashBankAccountId);
         setNarration(first.narrationId || '');
-        
-        const mappedLines = details.map(d => ({
+
+        const mappedLines: EditablePaymentLine[] = details.map((d) => ({
           seq: d.seq,
           account: d.accountId,
           amount: d.amount,
           checkNum: d.checkNum || '',
           checkDate: d.checkDate || '',
-          remarks: d.remarks || ''
+          remarks: d.remarks || '',
+          showCheque: Boolean(d.checkNum || d.checkDate),
         }));
         setLines(mappedLines);
-        
-        // Fetch balances for loaded accounts
+
         fetchBalance(first.cashBankAccountId);
-        mappedLines.forEach(l => fetchBalance(l.account));
+        mappedLines.forEach((l) => fetchBalance(l.account));
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load payment details.');
       router.back();
     } finally {
@@ -146,89 +173,42 @@ export default function PaymentFormScreen() {
     }
   };
 
-  const fetchBalance = async (accountId: string) => {
-    if (!accountId || balances[accountId] !== undefined) return;
-    try {
-      const bal = await paymentService.getAccountBalance(accountId);
-      setBalances(prev => ({ ...prev, [accountId]: bal }));
-    } catch (error) {
-      console.log('Balance fetch failed for', accountId);
-    }
-  };
-
-  const handleCashBankAccountChange = (val: string) => {
-    setCashBankAccount(val);
-    fetchBalance(val);
-  };
-
-  const openSelectModal = (type: 'cashBank' | 'narration' | 'account') => {
-    setSelectModalType(type);
-    setSearchQuery('');
-    setSelectModalVisible(true);
-  };
-
-  const handleSelect = (val: string) => {
-    if (selectModalType === 'cashBank') {
-      handleCashBankAccountChange(val);
-    } else if (selectModalType === 'narration') {
-      setNarration(val);
-    } else if (selectModalType === 'account') {
-      setCurrentLine({ ...currentLine, account: val });
-    }
-    setSelectModalVisible(false);
-  };
-
-  const openLineModal = (line?: PaymentLineRequest) => {
-    if (line) {
-      setCurrentLine({ ...line });
-      if (line.checkDate) {
-        setCurrentCheckDate(new Date(line.checkDate));
-      }
-    } else {
-      const maxSeq = lines.reduce((max, l) => Math.max(max, l.seq), 0);
-      setCurrentLine({
-        seq: maxSeq + 1,
-        account: '',
-        amount: 0,
-        checkNum: '',
-        checkDate: '',
-        remarks: ''
-      });
-      setCurrentCheckDate(new Date());
-    }
-    setLineModalVisible(true);
-  };
-
-  const saveLine = () => {
-    if (!currentLine.account || !currentLine.amount || currentLine.amount <= 0) {
-      Alert.alert('Validation Error', 'Account and a valid amount are required.');
-      return;
-    }
-    
-    fetchBalance(currentLine.account);
-    
-    setLines(prev => {
-      const exists = prev.findIndex(l => l.seq === currentLine.seq);
-      if (exists >= 0) {
-        const newLines = [...prev];
-        newLines[exists] = currentLine as PaymentLineRequest;
-        return newLines;
-      }
-      return [...prev, currentLine as PaymentLineRequest];
+  const handleQuickAddAccount = (accountId: string) => {
+    if (!accountId) return;
+    fetchBalance(accountId);
+    setLines((prev) => {
+      const maxSeq = prev.reduce((max, l) => Math.max(max, l.seq || 0), 0);
+      return [
+        ...prev,
+        {
+          seq: maxSeq + 1,
+          account: accountId,
+          amount: 0,
+          checkNum: '',
+          checkDate: '',
+          remarks: '',
+          showCheque: false,
+        },
+      ];
     });
-    setLineModalVisible(false);
+  };
+
+  const updateLine = (seq: number, patch: Partial<EditablePaymentLine>) => {
+    setLines((prev) =>
+      prev.map((l) => (l.seq === seq ? { ...l, ...patch } : l))
+    );
   };
 
   const removeLine = async (seq: number) => {
     if (isEdit) {
       try {
         await paymentService.deleteLine(voucherNo!, seq);
-      } catch (error) {
+      } catch {
         Alert.alert('Error', 'Failed to delete line from database.');
         return;
       }
     }
-    setLines(prev => prev.filter(l => l.seq !== seq));
+    setLines((prev) => prev.filter((l) => l.seq !== seq));
   };
 
   const handleSaveVoucher = async () => {
@@ -236,20 +216,24 @@ export default function PaymentFormScreen() {
       Alert.alert('Validation Error', 'Date and Cash/Bank Account are required.');
       return;
     }
-    if (lines.length === 0) {
-      Alert.alert('Validation Error', 'At least one line item is required.');
+    const validLines = lines.filter((l) => l.account && (Number(l.amount) || 0) > 0);
+    if (validLines.length === 0) {
+      Alert.alert(
+        'Validation Error',
+        'Please add at least one account with an amount greater than 0.'
+      );
       return;
     }
 
     setSaving(true);
     try {
-      const cleanedLines = lines.map(l => ({
-        seq: l.seq,
+      const cleanedLines = validLines.map((l, idx) => ({
+        seq: idx + 1,
         account: l.account,
-        amount: l.amount,
+        amount: Number(l.amount) || 0,
         checkNum: l.checkNum || undefined,
         checkDate: l.checkDate || undefined,
-        remarks: l.remarks || undefined
+        remarks: l.remarks || undefined,
       }));
 
       const request = {
@@ -257,18 +241,21 @@ export default function PaymentFormScreen() {
         clearingDate: clearingDate ? dayjs(clearingDate).format('YYYY-MM-DD') : undefined,
         cashBankAccount,
         narration: narration || undefined,
-        lines: cleanedLines
+        lines: cleanedLines,
       };
 
       if (isEdit) {
         await paymentService.update(voucherNo!, request);
-        Alert.alert('Success', 'Payment updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Payment updated successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       } else {
         await paymentService.create(request);
-        Alert.alert('Success', 'Payment created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Payment created successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       }
     } catch (error: any) {
-      console.error('Failed to save payment:', error?.response?.data || error);
       Alert.alert('Error', extractErrorMessage(error, 'Failed to save payment.'));
     } finally {
       setSaving(false);
@@ -278,34 +265,49 @@ export default function PaymentFormScreen() {
   const handleDeleteVoucher = () => {
     Alert.alert('Delete Payment', 'Are you sure you want to delete this payment voucher?', [
       { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Delete', 
+      {
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           setSaving(true);
           try {
             await paymentService.delete(voucherNo!);
-            Alert.alert('Success', 'Payment deleted.', [{ text: 'OK', onPress: () => router.back() }]);
-          } catch (error) {
+            Alert.alert('Success', 'Payment deleted.', [
+              { text: 'OK', onPress: () => router.back() },
+            ]);
+          } catch {
             Alert.alert('Error', 'Failed to delete payment.');
             setSaving(false);
           }
-        }
-      }
+        },
+      },
     ]);
   };
 
-  const handleCopyAsNew = () => {
-    Alert.alert('Copy as New', 'Are you sure you want to duplicate this voucher?', [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Copy', 
-        onPress: () => {
-          router.replace({ pathname: '/payments/[voucherNo]', params: { voucherNo: voucherNo, mode: 'copy' } });
-        }
-      }
-    ]);
-  };
+  const cashBankOptions: InlineSelectOption[] = useMemo(
+    () =>
+      cashBankAccounts.map((a) => ({
+        id: a.account,
+        title: a.title,
+        subtitle: `Acc: ${a.account}`,
+      })),
+    [cashBankAccounts]
+  );
+
+  const detailAccountOptions: InlineSelectOption[] = useMemo(
+    () =>
+      detailAccounts.map((a) => ({
+        id: a.account,
+        title: a.title,
+        subtitle: `Acc: ${a.account}`,
+      })),
+    [detailAccounts]
+  );
+
+  const narrationOptions: InlineSelectOption[] = useMemo(
+    () => narrations.map((n) => ({ id: n.code, title: n.title })),
+    [narrations]
+  );
 
   if (loading) {
     return (
@@ -315,656 +317,638 @@ export default function PaymentFormScreen() {
     );
   }
 
-  const totalAmount = lines.reduce((sum, l) => sum + (l.amount || 0), 0);
+  const totalAmount = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+  const cbBal = cashBankAccount ? balances[cashBankAccount] : undefined;
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
       >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-          
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Master Details</Text>
-              {isEdit && (
-                <View style={styles.voucherBadge}>
-                  <Text style={styles.voucherBadgeText}>
-                    PV-{String(voucherNo).padStart(5, '0')}
-                  </Text>
-                </View>
-              )}
-            </View>
-            
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Date *</Text>
-              <TouchableOpacity style={styles.datePickerBtn} onPress={() => setShowDatePicker(true)}>
-                <Text style={styles.dateText}>{dayjs(date).format('DD-MMM-YYYY')}</Text>
-                <Ionicons name="calendar-outline" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-              {showDatePicker && (
-                <DateTimePicker
-                  value={date}
-                  mode="date"
-                  display="default"
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(false);
-                    if (selectedDate) setDate(selectedDate);
-                  }}
-                />
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.label}>Clearing Date (Optional)</Text>
-                {clearingDate && (
-                  <TouchableOpacity onPress={() => setClearingDate(null)}>
-                    <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 6 }}>Clear</Text>
-                  </TouchableOpacity>
-                )}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+          ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* Master Details Card */}
+          <View style={styles.card}>
+            <View style={styles.headerRow}>
+              <Text style={styles.cardTitle}>Payment Voucher</Text>
+              <View style={styles.voucherBadge}>
+                <Text style={styles.voucherBadgeText}>
+                  {isEdit ? `PV-${String(voucherNo).padStart(5, '0')}` : 'NEW PV'}
+                </Text>
               </View>
-              <TouchableOpacity style={styles.datePickerBtn} onPress={() => setShowClearingDatePicker(true)}>
-                <Text style={[styles.dateText, !clearingDate && { color: Theme.colors.textSecondary }]}>
-                  {clearingDate ? dayjs(clearingDate).format('DD-MMM-YYYY') : 'Not Set'}
-                </Text>
-                <Ionicons name="calendar-outline" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-              {showClearingDatePicker && (
-                <DateTimePicker
-                  value={clearingDate || new Date()}
-                  mode="date"
-                  display="default"
-                  onChange={(event, selectedDate) => {
-                    setShowClearingDatePicker(false);
-                    if (selectedDate) setClearingDate(selectedDate);
-                  }}
-                />
-              )}
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Cash/Bank Account *</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('cashBank')}
-              >
-                <Text style={[styles.selectorText, !cashBankAccount && { color: Theme.colors.textSecondary }]}>
-                  {cashBankAccount ? cashBankAccounts.find(a => a.account === cashBankAccount)?.title || cashBankAccount : 'Select Account'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
+            <View style={styles.dateRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Voucher Date *</Text>
+                <TouchableOpacity
+                  style={styles.dateBtn}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={15} color={Theme.colors.primary} />
+                  <Text style={styles.dateText}>{dayjs(date).format('DD MMM YYYY')}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <View style={styles.labelWithAction}>
+                  <Text style={styles.label}>Clearing Date</Text>
+                  {clearingDate && (
+                    <TouchableOpacity onPress={() => setClearingDate(null)}>
+                      <Text style={styles.clearDateText}>Clear</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.dateBtn}
+                  onPress={() => setShowClearingDatePicker(true)}
+                >
+                  <Ionicons
+                    name="calendar-clear-outline"
+                    size={15}
+                    color={Theme.colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.dateText,
+                      !clearingDate && { color: Theme.colors.textSecondary },
+                    ]}
+                  >
+                    {clearingDate ? dayjs(clearingDate).format('DD MMM YYYY') : 'Optional'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Narration</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('narration')}
-              >
-                <Text style={[styles.selectorText, !narration && { color: Theme.colors.textSecondary }]}>
-                  {narration ? narrations.find(n => n.code === narration)?.title || narration : 'Select Narration'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display="default"
+                onChange={(_, d) => {
+                  setShowDatePicker(false);
+                  if (d) setDate(d);
+                }}
+              />
+            )}
 
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Line Items</Text>
-              <TouchableOpacity style={styles.addBtn} onPress={() => openLineModal()}>
-                <Ionicons name="add" size={16} color={Theme.colors.white} />
-                <Text style={styles.addBtnText}>Add Line</Text>
-              </TouchableOpacity>
+            {showClearingDatePicker && (
+              <DateTimePicker
+                value={clearingDate || new Date()}
+                mode="date"
+                display="default"
+                onChange={(_, d) => {
+                  setShowClearingDatePicker(false);
+                  if (d) setClearingDate(d);
+                }}
+              />
+            )}
+
+            <InlineSearchSelect
+              label="Paying Cash / Bank Account *"
+              placeholder="Select Cash or Bank Account..."
+              value={cashBankAccount}
+              options={cashBankOptions}
+              onSelect={(id) => {
+                setCashBankAccount(id);
+                fetchBalance(id);
+              }}
+              compact
+              rightAccessory={
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {cbBal !== undefined && (
+                    <Text
+                      style={[
+                        styles.balancePillText,
+                        cbBal >= 0 ? { color: '#16A34A' } : { color: '#DC2626' },
+                      ]}
+                    >
+                      Bal: Rs. {Math.abs(cbBal).toLocaleString()} {cbBal >= 0 ? 'Dr' : 'Cr'}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.notesToggleLink}
+                    onPress={() => setNarrationExpanded((prev) => !prev)}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  >
+                    <Text
+                      style={[
+                        styles.notesToggleLinkText,
+                        (narrationExpanded || Boolean(narration)) && styles.notesToggleLinkTextActive,
+                      ]}
+                    >
+                      {narrationExpanded || Boolean(narration) ? 'Narration' : '+ Narration'}
+                    </Text>
+                    <Ionicons
+                      name={
+                        narrationExpanded || Boolean(narration)
+                          ? 'chevron-up'
+                          : 'chevron-down'
+                      }
+                      size={14}
+                      color={Theme.colors.primary}
+                    />
+                  </TouchableOpacity>
+                </View>
+              }
+            />
+
+            {(narrationExpanded || Boolean(narration)) && (
+              <InlineSearchSelect
+                label="Narration"
+                placeholder="Select or type narration..."
+                value={narration}
+                options={narrationOptions}
+                onSelect={setNarration}
+                allowClear
+                allowCustomText
+                compact
+              />
+            )}
+          </View>
+
+          {/* Fast Inline Account Entry + Editable Lines */}
+          <View style={styles.card}>
+            <View style={styles.headerRow}>
+              <Text style={styles.cardTitle}>
+                Paid To Accounts ({lines.length})
+              </Text>
+              <Text style={styles.totalBadge}>
+                Total: Rs. {totalAmount.toLocaleString()}
+              </Text>
             </View>
+
+            <InlineSearchSelect
+              placeholder="+ Search & tap Vendor / Expense / Account to add row..."
+              value=""
+              options={detailAccountOptions}
+              onSelect={(accId) => handleQuickAddAccount(accId)}
+              compact
+            />
 
             {lines.length === 0 ? (
-              <Text style={styles.emptyLinesText}>No lines added yet.</Text>
+              <View style={styles.emptyBox}>
+                <Ionicons name="wallet-outline" size={30} color={Theme.colors.border} />
+                <Text style={styles.emptyText}>
+                  Tap above to select an account and enter paid amount directly.
+                </Text>
+              </View>
             ) : (
               lines.map((line, index) => {
-                const accTitle = detailAccounts.find(a => a.account === line.account)?.title || line.account;
+                const accObj = detailAccounts.find((a) => a.account === line.account);
+                const accBal = line.account ? balances[line.account] : undefined;
+
                 return (
-                  <View key={line.seq} style={styles.lineCard}>
-                    <View style={styles.lineInfo}>
-                      <Text style={styles.lineAccount} numberOfLines={1}>{accTitle}</Text>
-                      <Text style={styles.lineAmount}>Rs. {line.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-                      {line.checkNum ? <Text style={styles.lineDetail}>Chk: {line.checkNum} {line.checkDate ? `(${line.checkDate})` : ''}</Text> : null}
-                      {line.remarks ? <Text style={styles.lineDetail} numberOfLines={1}>Remarks: {line.remarks}</Text> : null}
+                  <View key={line.seq || index} style={styles.lineCard}>
+                    <View style={styles.lineHeader}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.lineAccountTitle} numberOfLines={1}>
+                          {accObj?.title || line.account || 'Select Account'}
+                        </Text>
+                        <View style={styles.lineMetaRow}>
+                          <Text style={styles.lineAccountCode}>{line.account}</Text>
+                          {accBal !== undefined && (
+                            <TouchableOpacity
+                              style={[
+                                styles.balChip,
+                                accBal >= 0 ? styles.balChipDr : styles.balChipCr,
+                              ]}
+                              onPress={() => {
+                                if (Math.abs(accBal) > 0) {
+                                  updateLine(line.seq, { amount: Math.abs(accBal) });
+                                }
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.balChipText,
+                                  accBal >= 0 ? { color: '#15803D' } : { color: '#B91C1C' },
+                                ]}
+                              >
+                                Bal: Rs. {Math.abs(accBal).toLocaleString()}{' '}
+                                {accBal >= 0 ? 'Dr' : 'Cr (Tap to Fill)'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.lineTopBtns}>
+                        <TouchableOpacity
+                          style={[
+                            styles.chequeToggleBtn,
+                            line.showCheque && styles.chequeToggleBtnActive,
+                          ]}
+                          onPress={() =>
+                            updateLine(line.seq, { showCheque: !line.showCheque })
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.chequeToggleText,
+                              line.showCheque && { color: '#FFF' },
+                            ]}
+                          >
+                            Cheque
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => removeLine(line.seq)}
+                          style={{ padding: 4 }}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={16}
+                            color={Theme.colors.danger}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <View style={styles.lineActions}>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => openLineModal(line)}>
-                        <Ionicons name="pencil" size={20} color={Theme.colors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => removeLine(line.seq)}>
-                        <Ionicons name="trash" size={20} color={Theme.colors.danger} />
-                      </TouchableOpacity>
+
+                    <View style={styles.inlineFieldsRow}>
+                      <View style={styles.amountFieldWrap}>
+                        <Text style={styles.miniLabel}>Amount (Rs.) *</Text>
+                        <TextInput
+                          style={styles.amountInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          placeholder="0"
+                          value={line.amount === 0 ? '' : String(line.amount)}
+                          onChangeText={(txt) =>
+                            updateLine(line.seq, { amount: parseFloat(txt) || 0 })
+                          }
+                        />
+                      </View>
+
+                      <View style={styles.remarksFieldWrap}>
+                        <Text style={styles.miniLabel}>Remarks / Particulars</Text>
+                        <TextInput
+                          style={styles.remarksInput}
+                          placeholder="Optional remarks..."
+                          placeholderTextColor={Theme.colors.textSecondary}
+                          value={line.remarks || ''}
+                          onChangeText={(txt) => updateLine(line.seq, { remarks: txt })}
+                        />
+                      </View>
                     </View>
+
+                    {line.showCheque && (
+                      <View style={[styles.inlineFieldsRow, { marginTop: 6 }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.miniLabel}>Cheque #</Text>
+                          <TextInput
+                            style={styles.remarksInput}
+                            placeholder="Cheque number"
+                            value={line.checkNum || ''}
+                            onChangeText={(txt) => updateLine(line.seq, { checkNum: txt })}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.miniLabel}>Cheque Date</Text>
+                          <TouchableOpacity
+                            style={styles.chequeDateBtn}
+                            onPress={() => setActiveCheckDateSeq(line.seq)}
+                          >
+                            <Text style={styles.chequeDateText}>
+                              {line.checkDate
+                                ? dayjs(line.checkDate).format('DD MMM YYYY')
+                                : 'Select Date'}
+                            </Text>
+                            <Ionicons
+                              name="calendar-outline"
+                              size={14}
+                              color={Theme.colors.textSecondary}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
                   </View>
                 );
               })
             )}
-            
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Amount</Text>
-              <Text style={styles.totalValue}>Rs. {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-            </View>
-          </Animated.View>
 
-          {/* Balances Preview */}
-          {Object.keys(balances).length > 0 && (
-            <Animated.View entering={FadeInUp.delay(300).duration(400)} style={styles.section}>
-              <Text style={styles.sectionTitle}>Current Balances</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.balancesContainer}>
-                {Object.entries(balances).map(([acc, bal]) => {
-                  const title = cashBankAccounts.find(a => a.account === acc)?.title || detailAccounts.find(a => a.account === acc)?.title || acc;
-                  const isPositive = bal >= 0;
-                  return (
-                    <View key={acc} style={[styles.balanceCard, isPositive ? styles.balancePositive : styles.balanceNegative]}>
-                      <Text style={styles.balanceTitle} numberOfLines={1}>{title}</Text>
-                      <Text style={[styles.balanceValue, isPositive ? styles.textPositive : styles.textNegative]}>
-                        Rs. {Math.abs(bal).toLocaleString(undefined, { minimumFractionDigits: 2 })} {isPositive ? 'Dr' : 'Cr'}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            </Animated.View>
-          )}
-
+            {activeCheckDateSeq !== null && (
+              <DateTimePicker
+                value={new Date()}
+                mode="date"
+                display="default"
+                onChange={(_, selDate) => {
+                  const targetSeq = activeCheckDateSeq;
+                  setActiveCheckDateSeq(null);
+                  if (selDate && targetSeq !== null) {
+                    updateLine(targetSeq, {
+                      checkDate: dayjs(selDate).format('YYYY-MM-DD'),
+                    });
+                  }
+                }}
+              />
+            )}
+          </View>
         </ScrollView>
 
         <View style={styles.footer}>
           {isEdit && (
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteVoucher} disabled={saving}>
-              <Ionicons name="trash-outline" size={24} color={Theme.colors.danger} />
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              onPress={handleDeleteVoucher}
+              disabled={saving}
+            >
+              <Ionicons name="trash-outline" size={20} color={Theme.colors.danger} />
             </TouchableOpacity>
           )}
-          {(isEdit || mode === 'copy') && (
-            <TouchableOpacity style={styles.copyBtn} onPress={handleCopyAsNew} disabled={saving || mode === 'copy'}>
-              <Ionicons name="copy-outline" size={24} color={Theme.colors.primary} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={[styles.saveBtn, { flex: 1 }]} onPress={handleSaveVoucher} disabled={saving}>
-            {saving ? <ActivityIndicator color={Theme.colors.white} /> : (
+          <TouchableOpacity
+            style={styles.saveBtn}
+            onPress={handleSaveVoucher}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
               <>
-                <Ionicons name="save-outline" size={20} color={Theme.colors.white} style={{ marginRight: 8 }} />
-                <Text style={styles.saveBtnText}>Save Payment</Text>
+                <Ionicons name="save-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.saveBtnText}>
+                  {isEdit
+                    ? 'Update Payment'
+                    : `Save Payment (Rs. ${totalAmount.toLocaleString()})`}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
-
-        {/* Line Item Modal */}
-        <Modal visible={lineModalVisible} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{currentLine.account ? 'Edit Line' : 'Add Line'}</Text>
-                <TouchableOpacity onPress={() => setLineModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Account *</Text>
-                  <TouchableOpacity 
-                    style={styles.pickerContainer}
-                    onPress={() => openSelectModal('account')}
-                  >
-                    <Text style={[styles.selectorText, !currentLine.account && { color: Theme.colors.textSecondary }]}>
-                      {currentLine.account ? detailAccounts.find(a => a.account === currentLine.account)?.title || currentLine.account : 'Select Account'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Amount *</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    keyboardType="numeric"
-                    placeholder="Enter amount"
-                    placeholderTextColor={Theme.colors.textSecondary}
-                    value={currentLine.amount ? currentLine.amount.toString() : ''}
-                    onChangeText={(val) => setCurrentLine({ ...currentLine, amount: parseFloat(val) || 0 })}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Check #</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Optional check number"
-                    placeholderTextColor={Theme.colors.textSecondary}
-                    value={currentLine.checkNum}
-                    onChangeText={(val) => setCurrentLine({ ...currentLine, checkNum: val })}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Check Date</Text>
-                  <TouchableOpacity style={styles.datePickerBtn} onPress={() => setShowCheckDatePicker(true)}>
-                    <Text style={styles.dateText}>
-                      {currentLine.checkDate ? dayjs(currentLine.checkDate).format('DD-MMM-YYYY') : 'Select Date'}
-                    </Text>
-                    <Ionicons name="calendar-outline" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                  {showCheckDatePicker && (
-                    <DateTimePicker
-                      value={currentCheckDate}
-                      mode="date"
-                      display="default"
-                      onChange={(event, selDate) => {
-                        setShowCheckDatePicker(false);
-                        if (selDate) {
-                          setCurrentCheckDate(selDate);
-                          setCurrentLine({ ...currentLine, checkDate: dayjs(selDate).format('YYYY-MM-DD') });
-                        }
-                      }}
-                    />
-                  )}
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Remarks</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Optional remarks"
-                    placeholderTextColor={Theme.colors.textSecondary}
-                    value={currentLine.remarks}
-                    onChangeText={(val) => setCurrentLine({ ...currentLine, remarks: val })}
-                  />
-                </View>
-                
-                <TouchableOpacity style={styles.modalSaveBtn} onPress={saveLine}>
-                  <Text style={styles.modalSaveBtnText}>Confirm Line</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Shared Selection Modal */}
-        <Modal visible={selectModalVisible} animationType="slide" transparent={true}>
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { maxHeight: '50%' }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  {selectModalType === 'cashBank' ? 'Select Cash/Bank' :
-                   selectModalType === 'narration' ? 'Select Narration' : 'Select Account'}
-                </Text>
-                <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color={Theme.colors.textSecondary} style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search..."
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoCapitalize="none"
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')}>
-                    <Ionicons name="close-circle" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {selectModalType === 'cashBank' && cashBankAccounts
-                  .filter(a => a.title.toLowerCase().includes(searchQuery.toLowerCase()) || a.account.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(a => (
-                  <TouchableOpacity key={a.account} style={styles.modalListItem} onPress={() => handleSelect(a.account)}>
-                    <Text style={styles.modalListItemText}>{a.title}</Text>
-                    <Text style={styles.modalListItemSub}>{a.account}</Text>
-                  </TouchableOpacity>
-                ))}
-                {selectModalType === 'narration' && narrations
-                  .filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(n => (
-                  <TouchableOpacity key={n.code} style={styles.modalListItem} onPress={() => handleSelect(n.code)}>
-                    <Text style={styles.modalListItemText}>{n.title}</Text>
-                  </TouchableOpacity>
-                ))}
-                {selectModalType === 'account' && detailAccounts
-                  .filter(a => a.title.toLowerCase().includes(searchQuery.toLowerCase()) || a.account.toLowerCase().includes(searchQuery.toLowerCase()))
-                  .map(a => (
-                  <TouchableOpacity key={a.account} style={styles.modalListItem} onPress={() => handleSelect(a.account)}>
-                    <Text style={styles.modalListItemText}>{a.title}</Text>
-                    <Text style={styles.modalListItemSub}>{a.account}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: Theme.spacing.md,
-    paddingBottom: Theme.spacing.xxl,
-  },
-  section: {
-    backgroundColor: Theme.colors.white,
-    borderRadius: Theme.radii.lg,
-    padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+  safeArea: { flex: 1, backgroundColor: Theme.colors.background },
+  container: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scrollView: { flex: 1 },
+  content: { padding: 12, paddingBottom: 32 },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 12,
     ...Theme.shadows.sm,
   },
-  sectionTitle: {
-    ...Theme.typography.h3,
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
     color: Theme.colors.text,
   },
   voucherBadge: {
-    backgroundColor: Theme.colors.primary + '20',
+    backgroundColor: '#EEF2FF',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Theme.radii.sm,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   voucherBadgeText: {
-    ...Theme.typography.small,
-    color: Theme.colors.primary,
+    fontSize: 11,
     fontWeight: '700',
+    color: Theme.colors.primary,
   },
-  rowBetween: {
+  totalBadge: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.colors.danger,
+  },
+  dateRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Theme.spacing.md,
-  },
-  inputGroup: {
-    marginBottom: Theme.spacing.md,
+    gap: 8,
+    marginBottom: 10,
   },
   label: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginBottom: 6,
-    fontWeight: '500',
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.sm,
-    padding: Theme.spacing.sm,
-    ...Theme.typography.body,
-    backgroundColor: Theme.colors.background,
-    color: Theme.colors.text,
-  },
-  pickerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.sm,
-    backgroundColor: Theme.colors.background,
-    padding: Theme.spacing.sm,
-    height: 50,
-  },
-  datePickerBtn: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.sm,
-    padding: Theme.spacing.sm,
-    backgroundColor: Theme.colors.background,
-    height: 50,
-  },
-  dateText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.primary,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 8,
-    borderRadius: Theme.radii.round,
-  },
-  addBtnText: {
-    color: Theme.colors.white,
+    fontSize: 11,
     fontWeight: '600',
-    marginLeft: 4,
-    fontSize: 14,
-  },
-  emptyLinesText: {
-    ...Theme.typography.body,
-    color: Theme.colors.textSecondary,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    paddingVertical: Theme.spacing.md,
-  },
-  lineCard: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    padding: Theme.spacing.sm,
-    marginBottom: Theme.spacing.sm,
-    backgroundColor: Theme.colors.background,
-  },
-  lineInfo: {
-    flex: 1,
-  },
-  lineAccount: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.text,
-  },
-  lineAmount: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.danger, // Red for payment amounts
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  lineDetail: {
-    ...Theme.typography.small,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  lineActions: {
-    justifyContent: 'space-around',
-    paddingLeft: Theme.spacing.sm,
-    borderLeftWidth: 1,
-    borderLeftColor: Theme.colors.border,
-  },
-  actionBtn: {
-    padding: 4,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Theme.spacing.md,
-    paddingTop: Theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Theme.colors.border,
-  },
-  totalLabel: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
-  },
-  totalValue: {
-    ...Theme.typography.h2,
-    color: Theme.colors.primary,
-  },
-  balancesContainer: {
-    flexDirection: 'row',
-  },
-  balanceCard: {
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radii.md,
-    borderWidth: 1,
-    marginRight: Theme.spacing.sm,
-    minWidth: 150,
-  },
-  balancePositive: {
-    backgroundColor: Theme.colors.success + '10',
-    borderColor: Theme.colors.success + '30',
-  },
-  balanceNegative: {
-    backgroundColor: Theme.colors.danger + '10',
-    borderColor: Theme.colors.danger + '30',
-  },
-  balanceTitle: {
-    ...Theme.typography.caption,
     color: Theme.colors.textSecondary,
     marginBottom: 4,
   },
-  balanceValue: {
-    ...Theme.typography.bodyMedium,
-    fontWeight: '700',
-  },
-  textPositive: {
-    color: Theme.colors.success,
-  },
-  textNegative: {
-    color: Theme.colors.danger,
-  },
-  footer: {
-    flexDirection: 'row',
-    padding: Theme.spacing.md,
-    backgroundColor: Theme.colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Theme.colors.border,
-    alignItems: 'center',
-  },
-  deleteBtn: {
-    width: 50,
-    height: 50,
-    backgroundColor: Theme.colors.danger + '15',
-    borderRadius: Theme.radii.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Theme.spacing.sm,
-  },
-  copyBtn: {
-    width: 50,
-    height: 50,
-    backgroundColor: Theme.colors.primary + '15',
-    borderRadius: Theme.radii.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Theme.spacing.sm,
-  },
-  saveBtn: {
-    height: 50,
-    backgroundColor: Theme.colors.primary,
-    borderRadius: Theme.radii.sm,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flex: 1,
-  },
-  saveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
-    fontWeight: '700',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Theme.colors.white,
-    borderTopLeftRadius: Theme.radii.xl,
-    borderTopRightRadius: Theme.radii.xl,
-    maxHeight: '90%',
-  },
-  modalHeader: {
+  labelWithAction: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: Theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
   },
-  modalTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
+  clearDateText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.colors.danger,
+    marginBottom: 4,
   },
-  modalBody: {
-    padding: Theme.spacing.md,
-  },
-  modalSaveBtn: {
-    backgroundColor: Theme.colors.primary,
-    height: 50,
-    borderRadius: Theme.radii.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: Theme.spacing.md,
-    marginBottom: Theme.spacing.xxl,
-  },
-  modalSaveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
-    fontWeight: '700',
-  },
-  selectorText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-    flex: 1,
-  },
-  searchContainer: {
+  dateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.background,
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 36,
   },
-  searchIcon: {
-    marginRight: Theme.spacing.sm,
-  },
-  searchInput: {
-    flex: 1,
-    ...Theme.typography.body,
+  dateText: {
+    fontSize: 12.5,
+    fontWeight: '600',
     color: Theme.colors.text,
-    paddingVertical: 8,
   },
-  modalListItem: {
-    padding: Theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
+  balancePillText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
-  modalListItemText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.text,
-    fontWeight: '500',
+  notesToggleLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
   },
-  modalListItemSub: {
-    ...Theme.typography.small,
+  notesToggleLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.colors.primary,
+  },
+  notesToggleLinkTextActive: {
+    fontWeight: '700',
+  },
+  emptyBox: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 6,
+  },
+  emptyText: {
+    fontSize: 12.5,
     color: Theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  lineCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    marginTop: 8,
+  },
+  lineHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  lineAccountTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Theme.colors.text,
+  },
+  lineMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 2,
+  },
+  lineAccountCode: {
+    fontSize: 11,
+    color: Theme.colors.textSecondary,
+  },
+  balChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  balChipDr: {
+    backgroundColor: '#DCFCE7',
+  },
+  balChipCr: {
+    backgroundColor: '#FEE2E2',
+  },
+  balChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  lineTopBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chequeToggleBtn: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  chequeToggleBtnActive: {
+    backgroundColor: Theme.colors.primary,
+  },
+  chequeToggleText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  inlineFieldsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  amountFieldWrap: {
+    flex: 0.9,
+  },
+  remarksFieldWrap: {
+    flex: 1.3,
+  },
+  miniLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: 2,
+  },
+  amountInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    height: 36,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  remarksInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    height: 36,
+    fontSize: 13,
+    color: Theme.colors.text,
+  },
+  chequeDateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    height: 36,
+  },
+  chequeDateText: {
+    fontSize: 12,
+    color: Theme.colors.text,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: Theme.colors.border,
+  },
+  deleteBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: Theme.colors.primary,
+  },
+  saveBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

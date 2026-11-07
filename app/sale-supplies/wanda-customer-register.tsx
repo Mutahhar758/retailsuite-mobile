@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform
+  ActivityIndicator, RefreshControl, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,7 +15,7 @@ import {
 } from '../../services/saleSupplyService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { inventoryService, Item } from '../../services/inventoryService';
-import { useAppStore } from '../../store/appStore';
+import { InlineSearchSelect } from '../../components/ui/InlineSearchSelect';
 
 interface EditableLine extends SaleSupplyLine {
   isDirty?: boolean;
@@ -25,7 +25,6 @@ interface EditableLine extends SaleSupplyLine {
 
 export default function WandaCustomerRegister() {
   const router = useRouter();
-  const { currentTenantIdentifier, licenses } = useAppStore();
 
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,24 +45,8 @@ export default function WandaCustomerRegister() {
 
   const [lines, setLines] = useState<EditableLine[]>([]);
 
-  // Modals
-  const [customerModalVisible, setCustomerModalVisible] = useState(false);
-  const [itemModalVisible, setItemModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Line Edit Modal
-  const [editLine, setEditLine] = useState<EditableLine | null>(null);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editQty, setEditQty] = useState('');
-  const [editRate, setEditRate] = useState('');
-  const [editDiscount, setEditDiscount] = useState('');
-  const [editAddLess, setEditAddLess] = useState('');
-  const [editSecQty, setEditSecQty] = useState('');
-  const [editSecRate, setEditSecRate] = useState('');
-  const [editPackQty, setEditPackQty] = useState('50');
-
-  // Quick Add Modal
-  const [addModalVisible, setAddModalVisible] = useState(false);
+  // Inline Quick Add State
+  const [quickAddExpanded, setQuickAddExpanded] = useState(false);
   const [addDate, setAddDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [addItemId, setAddItemId] = useState('');
   const [addQty, setAddQty] = useState('50');
@@ -107,7 +90,6 @@ export default function WandaCustomerRegister() {
         itemId: selectedItemId || undefined
       };
       const result = await saleSupplyService.getCustomerLines(params);
-      // Sort ASC by date
       result.sort((a, b) => dayjs(a.date).valueOf() - dayjs(b.date).valueOf());
       setLines(result.map(l => ({ ...l, isDirty: false })));
     } catch (error) {
@@ -146,91 +128,51 @@ export default function WandaCustomerRegister() {
     }
   };
 
-  // Open Edit Modal for a specific line
-  const handleOpenEditModal = (line: EditableLine) => {
-    setEditLine(line);
-    setEditQty(String(line.qty || 0));
-    setEditRate(String(Math.round(Number(line.rate || 0) * 100) / 100));
-    setEditDiscount(String(line.discount || 0));
-    setEditAddLess(String(line.addLess || 0));
-    setEditSecQty(String(line.secQty || 0));
-    setEditSecRate(String(Math.round(Number(line.secRate || 0) * 100) / 100));
-    const pack = (line.secQty && line.secQty > 0) ? (line.qty / line.secQty) : 50;
-    setEditPackQty(String(Math.round(pack * 100) / 100));
-    setEditModalVisible(true);
+  const handleInlineWandaChange = (voucherNo: string, seq: number, field: string, rawVal: string) => {
+    const numVal = parseFloat(rawVal) || 0;
+    setLines(prev => prev.map(l => {
+      if (l.voucherNo !== voucherNo || l.seq !== seq) return l;
+      const pack = (l.secQty && l.secQty > 0) ? (l.qty / l.secQty) : 50;
+      let qty = Number(l.qty) || 0;
+      let secQty = Number(l.secQty) || 0;
+      let rate = Number(l.rate) || 0;
+      let secRate = Number(l.secRate) || 0;
+      let discount = Number(l.discount) || 0;
+      let addLess = Number(l.addLess) || 0;
+
+      if (field === 'secQty') {
+        secQty = numVal;
+        if (pack > 0) qty = Math.round(secQty * pack * 100) / 100;
+      } else if (field === 'qty') {
+        qty = numVal;
+        if (pack > 0) secQty = Math.round((qty / pack) * 100) / 100;
+      } else if (field === 'rate') {
+        rate = numVal;
+        if (pack > 0) secRate = Math.round(rate * pack * 100) / 100;
+      } else if (field === 'secRate') {
+        secRate = numVal;
+        if (pack > 0) rate = Math.round((secRate / pack) * 100000000) / 100000000;
+      } else if (field === 'discount') {
+        discount = numVal;
+      } else if (field === 'addLess') {
+        addLess = numVal;
+      }
+
+      const amount = Math.round((((qty * rate) - discount) + addLess) * 100) / 100;
+      return {
+        ...l,
+        qty,
+        secQty,
+        rate,
+        secRate,
+        discount,
+        addLess,
+        amount,
+        isDirty: true
+      };
+    }));
   };
 
-  // Dual unit change handlers for Edit Modal
-  const handleEditBagsChange = (val: string) => {
-    setEditSecQty(val);
-    const bags = parseFloat(val) || 0;
-    const pack = parseFloat(editPackQty) || 50;
-    if (bags > 0 && pack > 0) {
-      setEditQty(String(Math.round(bags * pack * 100) / 100));
-    }
-  };
-
-  const handleEditWeightChange = (val: string) => {
-    setEditQty(val);
-    const weight = parseFloat(val) || 0;
-    const pack = parseFloat(editPackQty) || 50;
-    if (weight > 0 && pack > 0) {
-      setEditSecQty(String(Math.round((weight / pack) * 100) / 100));
-    }
-  };
-
-  const handleEditRateKgChange = (val: string) => {
-    setEditRate(val);
-    const rateKg = parseFloat(val) || 0;
-    const pack = parseFloat(editPackQty) || 50;
-    if (rateKg > 0 && pack > 0) {
-      setEditSecRate(String(Math.round(rateKg * pack * 100) / 100));
-    }
-  };
-
-  const handleEditBagRateChange = (val: string) => {
-    setEditSecRate(val);
-    const bagRate = parseFloat(val) || 0;
-    const pack = parseFloat(editPackQty) || 50;
-    if (bagRate > 0 && pack > 0) {
-      setEditRate(String(Math.round((bagRate / pack) * 100000000) / 100000000));
-    }
-  };
-
-  // Apply edits to line in state
-  const handleApplyLineEdit = () => {
-    if (!editLine) return;
-
-    const qty = parseFloat(editQty) || 0;
-    const rate = parseFloat(editRate) || 0;
-    const discount = parseFloat(editDiscount) || 0;
-    const addLess = parseFloat(editAddLess) || 0;
-    const secQty = parseFloat(editSecQty) || 0;
-    const secRate = parseFloat(editSecRate) || 0;
-
-    // Dual-unit amount: (Weight * Rate) - Discount + Carriage
-    const amount = Math.round((((qty * rate) - discount) + addLess) * 100) / 100;
-
-    setLines(prev => prev.map(l => (
-      l.voucherNo === editLine.voucherNo && l.seq === editLine.seq
-        ? {
-            ...l,
-            qty,
-            rate,
-            discount,
-            addLess,
-            secQty,
-            secRate,
-            amount,
-            isDirty: true
-          }
-        : l
-    )));
-
-    setEditModalVisible(false);
-  };
-
-  // Save single line back to server
   const handleSaveSingleLine = async (line: EditableLine) => {
     try {
       setSaving(true);
@@ -247,7 +189,6 @@ export default function WandaCustomerRegister() {
         secUnit: 'Bags'
       });
 
-      Alert.alert('Success', `Updated record for SP-${line.voucherNo}`);
       setLines(prev => prev.map(l => (
         l.voucherNo === line.voucherNo && l.seq === line.seq ? { ...l, isDirty: false } : l
       )));
@@ -259,7 +200,6 @@ export default function WandaCustomerRegister() {
     }
   };
 
-  // Save all modified lines
   const handleSaveAll = async () => {
     const dirtyLines = lines.filter(l => l.isDirty);
     if (dirtyLines.length === 0) {
@@ -297,7 +237,6 @@ export default function WandaCustomerRegister() {
     }
   };
 
-  // Delete line
   const handleDeleteLine = (line: EditableLine) => {
     Alert.alert(
       'Delete Supply Record',
@@ -311,7 +250,6 @@ export default function WandaCustomerRegister() {
             try {
               setLoading(true);
               await saleSupplyService.deleteLine(line.voucherNo, line.seq);
-              Alert.alert('Deleted', `Record deleted from SP-${line.voucherNo}`);
               fetchCustomerLines();
             } catch (error) {
               console.error(error);
@@ -325,7 +263,6 @@ export default function WandaCustomerRegister() {
     );
   };
 
-  // Dual unit change handlers for Quick Add Modal
   const handleAddBagsChange = (val: string) => {
     setAddSecQty(val);
     const bags = parseFloat(val) || 0;
@@ -362,7 +299,6 @@ export default function WandaCustomerRegister() {
     }
   };
 
-  // Add new supply record
   const handleAddSupplyRecord = async () => {
     if (!selectedCustomerId || !addItemId) {
       Alert.alert('Error', 'Please select customer and item');
@@ -420,10 +356,8 @@ export default function WandaCustomerRegister() {
           itemId: addItemId,
           lines: updatedLines
         });
-
-        Alert.alert('Success', `Added supply record to SP-${targetVoucher.voucherNo}`);
       } else {
-        const newVNo = await saleSupplyService.create({
+        await saleSupplyService.create({
           date: addDate,
           itemId: addItemId,
           lines: [{
@@ -437,11 +371,9 @@ export default function WandaCustomerRegister() {
             secRate
           }]
         });
-
-        Alert.alert('Success', `Created new supply voucher SP-${newVNo}`);
       }
 
-      setAddModalVisible(false);
+      setQuickAddExpanded(false);
       fetchCustomerLines();
     } catch (error) {
       console.error(error);
@@ -451,7 +383,6 @@ export default function WandaCustomerRegister() {
     }
   };
 
-  // Stats
   const stats = useMemo(() => {
     const totalRecords = lines.length;
     const totalQty = lines.reduce((acc, l) => acc + (Number(l.qty) || 0), 0);
@@ -465,44 +396,30 @@ export default function WandaCustomerRegister() {
     return customers.find(c => c.account === selectedCustomerId)?.title || 'Select Customer';
   }, [customers, selectedCustomerId]);
 
-  const filteredCustomers = useMemo(() => {
-    if (!searchQuery) return customers;
-    return customers.filter(c =>
-      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.account.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.parentCustomerTitle && c.parentCustomerTitle.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-  }, [customers, searchQuery]);
+  const customerOptions = useMemo(() => customers.map(c => ({
+    value: c.account,
+    label: c.title,
+    subtitle: c.parentCustomerTitle ? `Sub of: ${c.parentCustomerTitle} • ${c.account}` : c.account
+  })), [customers]);
 
-  const filteredItems = useMemo(() => {
-    if (!searchQuery) return items;
-    return items.filter(i =>
-      i.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      i.id.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [items, searchQuery]);
+  const itemOptions = useMemo(() => items.map(i => ({
+    value: i.id,
+    label: i.title,
+    subtitle: `Rate: Rs. ${i.priRate || 0}/Kg | Pack: ${i.qtyInPack || 50} Kg`
+  })), [items]);
 
-  // Ultra-Compact Dual-Unit Line Item Render
   const renderRecordItem = ({ item, index }: { item: EditableLine; index: number }) => (
-    <Animated.View entering={FadeInUp.delay(index * 20).duration(250)}>
-      <TouchableOpacity
-        style={[styles.compactRow, item.isDirty && styles.compactRowDirty]}
-        activeOpacity={0.7}
-        onPress={() => handleOpenEditModal(item)}
-      >
-        {/* Left Column: Date & Voucher Tag */}
-        <View style={styles.compactLeft}>
-          <Text style={styles.compactDate}>{dayjs(item.date).format('DD-MMM')}</Text>
-          <TouchableOpacity onPress={() => router.push(`/sale-supplies/${item.voucherNo}`)}>
-            <View style={styles.compactVoucherTag}>
-              <Text style={styles.compactVoucherText}>SP-{item.voucherNo}</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* Center Column: Item Title & Dual Metrics Formula */}
-        <View style={styles.compactCenter}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+    <Animated.View entering={FadeInUp.delay(Math.min(index * 20, 200)).duration(250)}>
+      <View style={[styles.compactRow, item.isDirty && styles.compactRowDirty]}>
+        {/* Top Row: Date, Voucher Tag, Item Title, Net Amount, Save/Delete */}
+        <View style={styles.rowHeader}>
+          <View style={styles.rowHeaderLeft}>
+            <Text style={styles.compactDate}>{dayjs(item.date).format('DD-MMM')}</Text>
+            <TouchableOpacity onPress={() => router.push(`/sale-supplies/${item.voucherNo}`)}>
+              <View style={styles.compactVoucherTag}>
+                <Text style={styles.compactVoucherText}>SP-{item.voucherNo}</Text>
+              </View>
+            </TouchableOpacity>
             <Text style={styles.compactItemTitle} numberOfLines={1}>
               {item.itemTitle || item.itemId}
             </Text>
@@ -514,29 +431,74 @@ export default function WandaCustomerRegister() {
               </View>
             )}
           </View>
-          <Text style={styles.compactSubText} numberOfLines={1}>
-            Bags: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{item.secQty || 0}</Text> | {item.qty} Kg @ Rs. {Number(item.rate || 0).toFixed(2)}/Kg
-            {item.addLess ? ` | Carriage: Rs. ${item.addLess}` : ''}
-          </Text>
-        </View>
 
-        {/* Right Column: Net Amount & Direct Actions */}
-        <View style={styles.compactRight}>
-          <Text style={styles.compactAmount}>${(item.amount || 0).toFixed(2)}</Text>
-          <View style={styles.compactActions}>
-            {item.isDirty ? (
+          <View style={styles.rowHeaderRight}>
+            <Text style={styles.compactAmount}>Rs. {(item.amount || 0).toFixed(2)}</Text>
+            {item.isDirty && (
               <TouchableOpacity style={styles.compactSaveBtn} onPress={() => handleSaveSingleLine(item)}>
                 <Ionicons name="checkmark" size={14} color="#fff" />
               </TouchableOpacity>
-            ) : (
-              <Ionicons name="create-outline" size={16} color="#3b82f6" />
             )}
             <TouchableOpacity style={styles.compactDeleteBtn} onPress={() => handleDeleteLine(item)}>
-              <Ionicons name="trash-outline" size={14} color="#ef4444" />
+              <Ionicons name="trash-outline" size={15} color="#ef4444" />
             </TouchableOpacity>
           </View>
         </View>
-      </TouchableOpacity>
+
+        {/* Inline Editable Wanda Fields */}
+        <View style={styles.inlineFieldsRow}>
+          <View style={styles.inlineFieldCol}>
+            <Text style={styles.inlineFieldLabel}>Bags</Text>
+            <TextInput
+              style={styles.inlineInput}
+              keyboardType="numeric"
+              value={String(item.secQty || 0)}
+              onChangeText={(val) => handleInlineWandaChange(item.voucherNo, item.seq, 'secQty', val)}
+              selectTextOnFocus
+            />
+          </View>
+          <View style={styles.inlineFieldCol}>
+            <Text style={styles.inlineFieldLabel}>Wt (Kg)</Text>
+            <TextInput
+              style={styles.inlineInput}
+              keyboardType="numeric"
+              value={String(item.qty || 0)}
+              onChangeText={(val) => handleInlineWandaChange(item.voucherNo, item.seq, 'qty', val)}
+              selectTextOnFocus
+            />
+          </View>
+          <View style={styles.inlineFieldCol}>
+            <Text style={styles.inlineFieldLabel}>Bag Rate</Text>
+            <TextInput
+              style={styles.inlineInput}
+              keyboardType="numeric"
+              value={String(Math.round((Number(item.secRate) || 0) * 100) / 100)}
+              onChangeText={(val) => handleInlineWandaChange(item.voucherNo, item.seq, 'secRate', val)}
+              selectTextOnFocus
+            />
+          </View>
+          <View style={styles.inlineFieldCol}>
+            <Text style={styles.inlineFieldLabel}>Rate/Kg</Text>
+            <TextInput
+              style={styles.inlineInput}
+              keyboardType="numeric"
+              value={String(Math.round((Number(item.rate) || 0) * 100) / 100)}
+              onChangeText={(val) => handleInlineWandaChange(item.voucherNo, item.seq, 'rate', val)}
+              selectTextOnFocus
+            />
+          </View>
+          <View style={styles.inlineFieldCol}>
+            <Text style={styles.inlineFieldLabel}>Add/Less</Text>
+            <TextInput
+              style={styles.inlineInput}
+              keyboardType="numeric"
+              value={String(item.addLess || 0)}
+              onChangeText={(val) => handleInlineWandaChange(item.voucherNo, item.seq, 'addLess', val)}
+              selectTextOnFocus
+            />
+          </View>
+        </View>
+      </View>
     </Animated.View>
   );
 
@@ -546,7 +508,7 @@ export default function WandaCustomerRegister() {
       <View style={styles.headerBanner}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>Customer Supply Register</Text>
+            <Text style={styles.bannerTitle}>Wanda Customer Register</Text>
             <Text style={styles.bannerSub} numberOfLines={1}>{selectedCustomerName}</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -573,21 +535,15 @@ export default function WandaCustomerRegister() {
       {/* Filter Section */}
       {!filterCollapsed && (
         <View style={styles.filterCard}>
-          <TouchableOpacity
-            style={styles.selectorBtn}
-            onPress={() => {
-              setSearchQuery('');
-              setCustomerModalVisible(true);
-            }}
-          >
-            <Ionicons name="person-outline" size={16} color="#2563eb" style={{ marginRight: 6 }} />
-            <Text style={styles.selectorText} numberOfLines={1}>
-              {selectedCustomerName}
-            </Text>
-            <Ionicons name="chevron-down" size={16} color="#64748b" />
-          </TouchableOpacity>
+          <InlineSearchSelect
+            options={customerOptions}
+            value={selectedCustomerId || ''}
+            onSelect={(val) => setSelectedCustomerId(val)}
+            placeholder="Search & Select Customer..."
+            icon="person-outline"
+            compact
+          />
 
-          {/* Quick Date Range Chips */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.shortcutScroll} contentContainerStyle={styles.shortcutContent}>
             <TouchableOpacity style={styles.shortcutChip} onPress={() => setDateShortcut('thisMonth')}>
               <Text style={styles.shortcutText}>This Month</Text>
@@ -643,17 +599,96 @@ export default function WandaCustomerRegister() {
             {selectedCustomerId && (
               <TouchableOpacity
                 style={styles.addRecordBtn}
-                onPress={() => setAddModalVisible(true)}
+                onPress={() => setQuickAddExpanded(prev => !prev)}
               >
-                <Ionicons name="add" size={16} color="#fff" />
+                <Ionicons name={quickAddExpanded ? 'close' : 'add'} size={16} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', marginLeft: 3 }}>
+                  {quickAddExpanded ? 'Hide' : 'Quick Add'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
+
+          {/* Inline Collapsible Quick Add Supply Record Bar */}
+          {selectedCustomerId && quickAddExpanded && (
+            <View style={styles.quickAddBox}>
+              <Text style={styles.quickAddTitle}>+ Quick Add Wanda Supply Record</Text>
+              <InlineSearchSelect
+                options={itemOptions}
+                value={addItemId}
+                onSelect={(val) => {
+                  setAddItemId(val);
+                  const found = items.find(i => i.id === val);
+                  if (found) {
+                    const pack = found.qtyInPack || 50;
+                    setAddPackQty(String(pack));
+                    const rateKg = found.priRate || 0;
+                    setAddRate(String(rateKg));
+                    setAddSecRate(String(Math.round(rateKg * pack * 100) / 100));
+                  }
+                }}
+                placeholder="Select Feed Item..."
+                icon="cube-outline"
+                compact
+              />
+              <View style={[styles.inlineFieldsRow, { marginTop: 6 }]}>
+                <View style={[styles.inlineFieldCol, { flex: 1.2 }]}>
+                  <Text style={styles.inlineFieldLabel}>Date</Text>
+                  <TextInput
+                    style={styles.inlineInput}
+                    value={addDate}
+                    onChangeText={setAddDate}
+                  />
+                </View>
+                <View style={styles.inlineFieldCol}>
+                  <Text style={styles.inlineFieldLabel}>Bags</Text>
+                  <TextInput
+                    style={styles.inlineInput}
+                    keyboardType="numeric"
+                    value={addSecQty}
+                    onChangeText={handleAddBagsChange}
+                    selectTextOnFocus
+                  />
+                </View>
+                <View style={styles.inlineFieldCol}>
+                  <Text style={styles.inlineFieldLabel}>Wt (Kg)</Text>
+                  <TextInput
+                    style={styles.inlineInput}
+                    keyboardType="numeric"
+                    value={addQty}
+                    onChangeText={handleAddWeightChange}
+                    selectTextOnFocus
+                  />
+                </View>
+                <View style={styles.inlineFieldCol}>
+                  <Text style={styles.inlineFieldLabel}>Bag Rate</Text>
+                  <TextInput
+                    style={styles.inlineInput}
+                    keyboardType="numeric"
+                    value={addSecRate}
+                    onChangeText={handleAddBagRateChange}
+                    selectTextOnFocus
+                  />
+                </View>
+                <TouchableOpacity
+                  style={styles.quickAddSubmitBtn}
+                  onPress={handleAddSupplyRecord}
+                  disabled={addingEntry}
+                >
+                  {addingEntry ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.quickAddSubmitText}>Add</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       )}
 
       {/* Main List */}
-      <View style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         {loading ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={Theme.colors.primary} />
@@ -664,6 +699,7 @@ export default function WandaCustomerRegister() {
             keyExtractor={(item) => `${item.voucherNo}-${item.seq}`}
             renderItem={renderRecordItem}
             contentContainerStyle={styles.listContainer}
+            keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />
             }
@@ -679,7 +715,7 @@ export default function WandaCustomerRegister() {
             }
           />
         )}
-      </View>
+      </KeyboardAvoidingView>
 
       {/* Bottom Sticky Summary Footer Bar */}
       {selectedCustomerId && (
@@ -711,287 +747,11 @@ export default function WandaCustomerRegister() {
 
             <View style={styles.bottomSummaryRight}>
               <Text style={styles.bottomSummaryLabel}>TOTAL AMOUNT</Text>
-              <Text style={styles.bottomSummaryVal}>${stats.totalAmount.toFixed(2)}</Text>
+              <Text style={styles.bottomSummaryVal}>Rs. {stats.totalAmount.toFixed(2)}</Text>
             </View>
           </View>
         </View>
       )}
-
-      {/* Customer Selector Modal */}
-      <Modal visible={customerModalVisible} animationType="slide" transparent>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Customer</Text>
-            <TouchableOpacity onPress={() => setCustomerModalVisible(false)}>
-              <Ionicons name="close" size={24} color="#1e293b" />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or code..."
-            placeholderTextColor="#94a3b8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-
-          <FlatList
-            data={filteredCustomers}
-            keyExtractor={item => item.account}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.modalOption, item.account === selectedCustomerId && styles.selectedOption]}
-                onPress={() => {
-                  setSelectedCustomerId(item.account);
-                  setCustomerModalVisible(false);
-                }}
-              >
-                <Text style={styles.optionTitle}>{item.title}</Text>
-                <Text style={styles.optionSub}>
-                  {item.parentCustomerTitle ? `Sub of: ${item.parentCustomerTitle} • ` : ''}{item.account}
-                </Text>
-              </TouchableOpacity>
-            )}
-          />
-        </SafeAreaView>
-      </Modal>
-
-      {/* Item Selector Modal */}
-      <Modal visible={itemModalVisible} animationType="slide" transparent>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Item</Text>
-            <TouchableOpacity onPress={() => setItemModalVisible(false)}>
-              <Ionicons name="close" size={24} color="#1e293b" />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search item..."
-            placeholderTextColor="#94a3b8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-
-          <FlatList
-            data={filteredItems}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.modalOption}
-                onPress={() => {
-                  setAddItemId(item.id);
-                  const pack = item.qtyInPack || 50;
-                  setAddPackQty(String(pack));
-                  const rateKg = item.priRate || 0;
-                  setAddRate(String(rateKg));
-                  setAddSecRate(String(Math.round(rateKg * pack * 100) / 100));
-                  setItemModalVisible(false);
-                }}
-              >
-                <Text style={styles.optionTitle}>{item.title}</Text>
-                <Text style={styles.optionSub}>Rate: Rs. {item.priRate || 0}/Kg | Pack: {item.qtyInPack || 50} Kg</Text>
-              </TouchableOpacity>
-            )}
-          />
-        </SafeAreaView>
-      </Modal>
-
-      {/* Dual-Unit Line Edit Modal */}
-      <Modal visible={editModalVisible} animationType="fade" transparent>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
-          <View style={styles.editCardModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Record ({editLine?.itemTitle || editLine?.itemId})</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#1e293b" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={{ maxHeight: 400 }}>
-              <View style={styles.inputPairRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Bags</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editSecQty}
-                    onChangeText={handleEditBagsChange}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Weight (Kg)</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editQty}
-                    onChangeText={handleEditWeightChange}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputPairRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Bag Rate</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editSecRate}
-                    onChangeText={handleEditBagRateChange}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Rate (/Kg)</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editRate}
-                    onChangeText={handleEditRateKgChange}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputPairRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Carriage</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editAddLess}
-                    onChangeText={setEditAddLess}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Discount</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    keyboardType="numeric"
-                    value={editDiscount}
-                    onChangeText={setEditDiscount}
-                  />
-                </View>
-              </View>
-            </ScrollView>
-
-            <TouchableOpacity
-              style={styles.applyEditBtn}
-              onPress={handleApplyLineEdit}
-            >
-              <Text style={styles.applyEditText}>Apply Changes</Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Quick Add Supply Record Modal */}
-      <Modal visible={addModalVisible} animationType="slide" transparent>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Supply Record</Text>
-            <TouchableOpacity onPress={() => setAddModalVisible(false)}>
-              <Ionicons name="close" size={24} color="#1e293b" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ paddingHorizontal: 16 }}>
-            <Text style={styles.inputLabel}>Date (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.editInput}
-              value={addDate}
-              onChangeText={setAddDate}
-            />
-
-            <Text style={styles.inputLabel}>Item</Text>
-            <TouchableOpacity
-              style={styles.selectorBtn}
-              onPress={() => {
-                setSearchQuery('');
-                setItemModalVisible(true);
-              }}
-            >
-              <Text style={styles.selectorText}>
-                {addItemId ? items.find(i => i.id === addItemId)?.title : 'Select Item...'}
-              </Text>
-            </TouchableOpacity>
-
-            <View style={styles.inputPairRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Bags</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addSecQty}
-                  onChangeText={handleAddBagsChange}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Weight (Kg)</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addQty}
-                  onChangeText={handleAddWeightChange}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputPairRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Bag Rate</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addSecRate}
-                  onChangeText={handleAddBagRateChange}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Rate (/Kg)</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addRate}
-                  onChangeText={handleAddRateKgChange}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputPairRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Carriage</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addAddLess}
-                  onChangeText={setAddAddLess}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Discount</Text>
-                <TextInput
-                  style={styles.editInput}
-                  keyboardType="numeric"
-                  value={addDiscount}
-                  onChangeText={setAddDiscount}
-                />
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.applyEditBtn, { marginTop: 24 }]}
-              onPress={handleAddSupplyRecord}
-              disabled={addingEntry}
-            >
-              {addingEntry ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.applyEditText}>Add Record</Text>
-              )}
-            </TouchableOpacity>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -1030,18 +790,6 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
     gap: 8
   },
-  selectorBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#cbd5e1'
-  },
-  selectorText: { fontSize: 14, fontWeight: '600', color: '#0f172a', flex: 1 },
   shortcutScroll: { marginVertical: 2 },
   shortcutContent: { gap: 6 },
   shortcutChip: {
@@ -1069,16 +817,43 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
   addRecordBtn: {
     backgroundColor: '#0284c7',
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center'
   },
+  quickAddBox: {
+    backgroundColor: '#f0f9ff',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    marginTop: 4
+  },
+  quickAddTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0369a1',
+    marginBottom: 6
+  },
+  quickAddSubmitBtn: {
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'flex-end'
+  },
+  quickAddSubmitText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12
+  },
   listContainer: { paddingHorizontal: 10, paddingVertical: 6, paddingBottom: 80 },
   compactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -1089,22 +864,58 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOpacity: 0.03,
     shadowRadius: 3,
-    elevation: 1,
-    gap: 8
+    elevation: 1
   },
   compactRowDirty: { backgroundColor: '#fefce8', borderColor: '#eab308' },
-  compactLeft: { width: 68, alignItems: 'flex-start' },
+  rowHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6
+  },
+  rowHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1
+  },
+  rowHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
   compactDate: { fontSize: 11, fontWeight: '700', color: '#475569' },
-  compactVoucherTag: { backgroundColor: '#fff7ed', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, marginTop: 2, borderWidth: 0.5, borderColor: '#fdba74' },
+  compactVoucherTag: { backgroundColor: '#fff7ed', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, borderWidth: 0.5, borderColor: '#fdba74' },
   compactVoucherText: { fontSize: 10, fontWeight: '700', color: '#c2410c' },
-  compactCenter: { flex: 1, justifyContent: 'center' },
-  compactItemTitle: { fontSize: 14, fontWeight: '700', color: '#1d4ed8' },
-  compactSubText: { fontSize: 11, color: '#64748b', marginTop: 1 },
-  compactRight: { alignItems: 'flex-end', justifyContent: 'center' },
+  compactItemTitle: { fontSize: 13, fontWeight: '700', color: '#1d4ed8', flex: 1 },
   compactAmount: { fontSize: 14, fontWeight: '800', color: '#15803d' },
-  compactActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  compactSaveBtn: { backgroundColor: '#16a34a', borderRadius: 4, padding: 2 },
+  compactSaveBtn: { backgroundColor: '#16a34a', borderRadius: 4, padding: 4 },
   compactDeleteBtn: { padding: 2 },
+  inlineFieldsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center'
+  },
+  inlineFieldCol: {
+    flex: 1
+  },
+  inlineFieldLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 2
+  },
+  inlineInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    height: 34,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a'
+  },
   bottomSummaryBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1133,22 +944,7 @@ const styles = StyleSheet.create({
   printBillText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   bottomSummaryRight: { alignItems: 'flex-end' },
   bottomSummaryLabel: { fontSize: 10, fontWeight: '700', color: '#94a3b8', letterSpacing: 0.5 },
-  bottomSummaryVal: { fontSize: 20, fontWeight: '800', color: '#4ade80' },
-  modalContainer: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  searchInput: { backgroundColor: '#f1f5f9', margin: 16, padding: 12, borderRadius: 8, fontSize: 15, color: '#0f172a' },
-  modalOption: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  selectedOption: { backgroundColor: '#eff6ff' },
-  optionTitle: { fontSize: 15, fontWeight: '600', color: '#0f172a' },
-  optionSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-  editCardModal: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
-  inputPairRow: { flexDirection: 'row', gap: 12 },
-  inputLabel: { fontSize: 13, fontWeight: '600', color: '#475569', marginTop: 12, marginBottom: 4 },
-  editInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#cbd5e1', padding: 10, borderRadius: 8, fontSize: 15, color: '#0f172a' },
-  applyEditBtn: { backgroundColor: '#16a34a', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 16 },
-  applyEditText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  bottomSummaryVal: { fontSize: 18, fontWeight: '800', color: '#4ade80' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyContainer: { padding: 30, alignItems: 'center' },
   emptyText: { marginTop: 8, fontSize: 13, color: '#64748b', textAlign: 'center' }

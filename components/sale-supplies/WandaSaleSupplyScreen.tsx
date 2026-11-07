@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Modal
+  Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -19,14 +19,17 @@ import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Theme } from '../../constants/theme';
-import { saleSupplyService, SaleSupplyLineRequest } from '../../services/saleSupplyService';
+import { saleSupplyService, SaleSupplyLineRequest, SaleSupplyAttachment } from '../../services/saleSupplyService';
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
-import { inventoryService, Item, Unit } from '../../services/inventoryService';
+import { inventoryService, Item, Unit, ItemCustomerCategoryPriceDto } from '../../services/inventoryService';
+import { customerCategoryService, CustomerCategoryLookupResponse } from '../../services/customerCategoryService';
 import { supplyOrderService, SupplyOrder } from '../../services/supplyOrderService';
 import { customerService } from '../../services/customerService';
 import { round } from '../../utils/numberUtils';
+import { InlineSearchSelect } from '../ui/InlineSearchSelect';
 import { ScanSupplySheetModal, type MobileScannedAttachmentMeta } from './ScanSupplySheetModal';
+import { useKeyboard } from '../../hooks/useKeyboard';
 
 export function WandaSaleSupplyScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
@@ -44,8 +47,13 @@ export function WandaSaleSupplyScreen() {
   const [items, setItems] = useState<Item[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [supplyOrders, setSupplyOrders] = useState<SupplyOrder[]>([]);
+  const [categoryPrices, setCategoryPrices] = useState<ItemCustomerCategoryPriceDto[]>([]);
+  const [customerCategories, setCustomerCategories] = useState<CustomerCategoryLookupResponse[]>([]);
 
   // Header State
+  const [headerExpanded, setHeaderExpanded] = useState(voucherNo === 'new');
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [itemId, setItemId] = useState('');
@@ -57,17 +65,12 @@ export function WandaSaleSupplyScreen() {
   const [lines, setLines] = useState<SaleSupplyLineRequest[]>([
     { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0, secQty: 0, secRate: 0, packQty: 0, packing: 0 }
   ]);
-
-  // Modal State for Selectors
-  const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'item' | 'customer' | 'narration' | 'supplyOrder'>('item');
-  const [activeLineSeq, setActiveLineSeq] = useState<number | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [lineSearchQuery, setLineSearchQuery] = useState('');
 
-  // AI Sheet Scan
+  // AI Sheet Scan & Attachments
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [stagedMediaIds, setStagedMediaIds] = useState<string[]>([]);
+  const [savedAttachments, setSavedAttachments] = useState<SaleSupplyAttachment[]>([]);
 
   useEffect(() => {
     loadLookups();
@@ -81,20 +84,33 @@ export function WandaSaleSupplyScreen() {
 
   const loadLookups = async () => {
     try {
-      const [cusData, narData, itemData, unitData, orderData] = await Promise.all([
+      const [cusData, narData, itemData, unitData, orderData, catPrices, custCats] = await Promise.all([
         chartOfAccountService.getCustomerAccounts(),
         narrationService.getActiveNarrationsLookup(),
         inventoryService.getItemsLookup(),
         inventoryService.getUnitsLookup(),
-        supplyOrderService.getList()
+        supplyOrderService.getList(),
+        inventoryService.getCustomerCategoryPrices().catch(() => []),
+        customerCategoryService.getLookup().catch(() => []),
       ]);
       setCustomers(cusData);
       setNarrations(narData);
       setItems(itemData);
       setUnits(unitData);
       setSupplyOrders(orderData);
+      setCategoryPrices(catPrices);
+      setCustomerCategories(custCats || []);
     } catch (error) {
       console.error('Failed to load lookups', error);
+    }
+  };
+
+  const loadAttachments = async (vNo: string) => {
+    try {
+      const list = await saleSupplyService.getAttachments(vNo);
+      setSavedAttachments(list || []);
+    } catch (err) {
+      console.warn('Failed to load attachments', err);
     }
   };
 
@@ -126,11 +142,42 @@ export function WandaSaleSupplyScreen() {
           packing: (d as any).packing || 0
         })));
       }
+      if (isEdit && voucherNo) {
+        await loadAttachments(voucherNo);
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to load sale supply details');
     } finally {
       setLoading(false);
     }
+  };
+
+  const resolveWandaCustomerCategoryRate = (selectedItem: Item | undefined, customerId: string) => {
+    if (!selectedItem) return { priRate: 0, secRate: 0, pSize: 0 };
+    const isSec = selectedItem.defaultUnit === selectedItem.secondaryUnit;
+    let baseRate = isSec ? (selectedItem.secRate || 0) : (selectedItem.priRate || 0);
+    const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
+    let baseSecRate = selectedItem.secRate || (baseRate * (pSize > 0 ? pSize : 1));
+
+    if (customerId) {
+      const cust = customers.find(c => c.account === customerId);
+      if (cust?.customerCategoryId) {
+        const catMatch = categoryPrices.find(
+          cp => cp.itemId === selectedItem.id && cp.customerCategoryId === cust.customerCategoryId
+        );
+        if (catMatch) {
+          if (catMatch.secRate != null && catMatch.secRate > 0) {
+            baseSecRate = catMatch.secRate;
+            baseRate = pSize > 0 ? round(baseSecRate / pSize, 8) : baseRate;
+          } else if (catMatch.priRate != null && catMatch.priRate > 0) {
+            baseRate = catMatch.priRate;
+            baseSecRate = pSize > 0 ? round(baseRate * pSize, 2) : baseSecRate;
+          }
+        }
+      }
+    }
+    const calculatedRate = (pSize > 0 && baseSecRate > 0) ? round(baseSecRate / pSize, 8) : baseRate;
+    return { priRate: calculatedRate, secRate: baseSecRate, pSize };
   };
 
   const handleSupplyOrderSelect = async (order: SupplyOrder) => {
@@ -164,18 +211,14 @@ export function WandaSaleSupplyScreen() {
       }
 
       const selectedItem = items.find(i => i.id === itemId);
-      const isSec = selectedItem?.defaultUnit === selectedItem?.secondaryUnit;
-      const baseRate = isSec ? (selectedItem?.secRate || 0) : (selectedItem?.priRate || 0);
-      const pSize = Number(selectedItem?.qtyInPack || (selectedItem as any)?.QtyInPack || (selectedItem as any)?.qty_in_pack || 0);
-      const baseSecRate = selectedItem?.secRate || (baseRate * (pSize > 0 ? pSize : 1));
-      const calculatedRate = (pSize > 0 && baseSecRate > 0) ? round(baseSecRate / pSize, 8) : baseRate;
 
       if (orderDetail && orderDetail.details) {
         const newLines: SaleSupplyLineRequest[] = orderDetail.details.map((d, index) => {
           const setting = customerQtyMap.get(d.customerId);
+          const { priRate: catRate, secRate: catSecRate, pSize } = resolveWandaCustomerCategoryRate(selectedItem, d.customerId);
           const qty = setting ? setting.qty : 1;
           const secQty = setting ? (setting.secQty || 0) : 0;
-          const lineRate = setting?.rate != null ? setting.rate : calculatedRate;
+          const lineRate = setting?.rate != null ? setting.rate : catRate;
           const lineDiscount = setting?.discount != null ? setting.discount : 0;
           const lineCarriage = setting?.carriage != null ? setting.carriage : 0;
           const lineAddLess = setting?.addLess != null ? setting.addLess : 0;
@@ -190,7 +233,7 @@ export function WandaSaleSupplyScreen() {
             carriage: lineCarriage,
             addLess: lineAddLess,
             secQty,
-            secRate: baseSecRate,
+            secRate: catSecRate,
             secUnit: selectedItem?.secondaryUnit || '',
             packQty: pSize,
             packing: pSize
@@ -247,16 +290,17 @@ export function WandaSaleSupplyScreen() {
         }
 
         const setting = customerQtyMap.get(line.customerId);
+        const { priRate: catRate, secRate: catSecRate } = resolveWandaCustomerCategoryRate(item, line.customerId);
         return {
           ...line,
           unit: item.defaultUnit || item.primaryUnit || '',
           qty: setting ? setting.qty : (line.qty || 1),
           secQty: setting ? (setting.secQty || 0) : (line.secQty || 0),
-          rate: setting?.rate != null ? setting.rate : defaultRate,
+          rate: setting?.rate != null ? setting.rate : catRate,
           discount: setting?.discount != null ? setting.discount : (line.discount || 0),
           carriage: setting?.carriage != null ? setting.carriage : (line.carriage || 0),
           addLess: setting?.addLess != null ? setting.addLess : (line.addLess || 0),
-          secRate,
+          secRate: catSecRate,
           secUnit: item.secondaryUnit || '',
           packQty: pSize,
           packing: pSize
@@ -384,16 +428,13 @@ export function WandaSaleSupplyScreen() {
     }));
   };
 
-  const handleCustomerSelect = async (seq: number, customerId: string) => {
+  const buildCustomerLineDefaults = async (customerId: string) => {
     const selectedItem = items.find(i => i.id === itemId);
-    const isSec = selectedItem?.defaultUnit === selectedItem?.secondaryUnit;
-    const baseRate = isSec ? (selectedItem?.secRate || 0) : (selectedItem?.priRate || 0);
-    const pSize = Number(selectedItem?.qtyInPack || (selectedItem as any)?.QtyInPack || (selectedItem as any)?.qty_in_pack || 0);
-    const secRate = selectedItem?.secRate || (baseRate * (pSize > 0 ? pSize : 1));
+    const { priRate: catRate, secRate: catSecRate, pSize } = resolveWandaCustomerCategoryRate(selectedItem, customerId);
 
     let defQty = 1;
     let defSecQty = 0;
-    let defRate = baseRate;
+    let defRate = catRate;
     let defDiscount = 0;
     let defAddLess = 0;
 
@@ -412,19 +453,79 @@ export function WandaSaleSupplyScreen() {
       }
     }
 
-    updateLine(seq, {
+    return {
       customerId,
       qty: defQty,
       secQty: defSecQty,
       rate: defRate,
       discount: defDiscount,
       addLess: defAddLess,
-      secRate,
+      secRate: catSecRate,
       unit: selectedItem?.defaultUnit || selectedItem?.primaryUnit || '',
       secUnit: selectedItem?.secondaryUnit || '',
       packQty: pSize,
       packing: pSize
+    };
+  };
+
+  const handleCustomerSelect = async (seq: number, customerId: string) => {
+    const defaults = await buildCustomerLineDefaults(customerId);
+    updateLine(seq, defaults);
+  };
+
+  const handleQuickAddCustomer = async (customerId: string) => {
+    const defaults = await buildCustomerLineDefaults(customerId);
+    setLines(prev => {
+      const isBlankOnly = prev.length === 1 && !prev[0].customerId;
+      if (isBlankOnly) {
+        return [{ seq: 1, ...defaults }];
+      }
+      const existingIdx = prev.findIndex(
+        l => String(l.customerId).trim().toLowerCase() === String(customerId).trim().toLowerCase()
+      );
+      if (existingIdx >= 0) {
+        const next = [...prev];
+        const cur = next[existingIdx];
+        const pSize = Number(cur.packQty || cur.packing || defaults.packQty || 0);
+        const curSec = Number(cur.secQty || 0);
+        const curQty = Number(cur.qty || 0);
+        if (pSize > 0) {
+          const newBags = round(curSec + 1, 2);
+          next[existingIdx] = {
+            ...cur,
+            secQty: newBags,
+            qty: round(newBags * pSize, 2),
+          };
+        } else {
+          next[existingIdx] = {
+            ...cur,
+            qty: round(curQty + 1, 2),
+          };
+        }
+        return next;
+      }
+      const nextSeq = prev.length > 0 ? Math.max(...prev.map(l => l.seq)) + 1 : 1;
+      return [{ seq: nextSeq, ...defaults }, ...prev];
     });
+  };
+
+  const handleDeleteAttachment = (att: SaleSupplyAttachment) => {
+    if (!voucherNo || voucherNo === 'new') return;
+    Alert.alert('Remove Attachment', `Delete "${att.fileName}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await saleSupplyService.deleteAttachment(voucherNo, att.id);
+            setSavedAttachments(prev => prev.filter(a => a.id !== att.id));
+          } catch (err) {
+            Alert.alert('Error', 'Failed to delete attachment');
+          }
+        }
+      }
+    ]);
   };
 
   const handleImportScannedLines = (
@@ -435,13 +536,17 @@ export function WandaSaleSupplyScreen() {
       const newMediaIds = attachments.map(a => a.mediaId);
       setStagedMediaIds(prev => Array.from(new Set([...prev, ...newMediaIds])));
       if (isEdit && voucherNo && voucherNo !== 'new') {
-        attachments.forEach(att => {
-          saleSupplyService.addAttachment(voucherNo!, {
-            mediaId: att.mediaId,
-            fileName: att.fileName,
-            description: 'Scanned paper slip'
-          }).catch(err => console.warn('Failed to add attachment to existing voucher:', err));
-        });
+        Promise.all(
+          attachments.map(att =>
+            saleSupplyService.addAttachment(voucherNo!, {
+              mediaId: att.mediaId,
+              fileName: att.fileName,
+              description: 'Scanned paper slip'
+            })
+          )
+        )
+          .then(() => loadAttachments(voucherNo!))
+          .catch(err => console.warn('Failed to add attachment to existing voucher:', err));
       }
     }
 
@@ -596,31 +701,45 @@ export function WandaSaleSupplyScreen() {
     };
   }, [lines]);
 
-  const openSelector = (type: 'item' | 'customer' | 'narration' | 'supplyOrder', lineSeq?: number) => {
-    setSelectModalType(type);
-    if (lineSeq !== undefined) setActiveLineSeq(lineSeq);
-    setSearchQuery('');
-    setSelectModalVisible(true);
-  };
+  const itemOptions = useMemo(() => items.map(i => ({
+    value: i.id,
+    label: i.title,
+    subtitle: `Code: ${i.id} • Rate: Rs. ${i.priRate || 0}/Kg`
+  })), [items]);
 
-  const filteredItems = items.filter(i => 
-    i.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    i.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const customerCategoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of customerCategories) {
+      map.set(c.code, c.title);
+    }
+    for (const cp of categoryPrices) {
+      if (cp.customerCategoryId && cp.customerCategoryTitle && !map.has(cp.customerCategoryId)) {
+        map.set(cp.customerCategoryId, cp.customerCategoryTitle);
+      }
+    }
+    return map;
+  }, [customerCategories, categoryPrices]);
 
-  const filteredCustomers = customers.filter(c => 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.account.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (c.parentCustomerTitle && c.parentCustomerTitle.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const customerOptions = useMemo(() => customers.map(c => {
+    const catTitle = c.customerCategoryTitle || (c.customerCategoryId ? customerCategoryMap.get(c.customerCategoryId) : undefined);
+    return {
+      value: c.account,
+      label: c.title,
+      subtitle: c.parentCustomerTitle ? `Sub of: ${c.parentCustomerTitle} • ${c.account}` : c.account,
+      badge: catTitle ? `Cat: ${catTitle}` : c.customerCategoryId ? `Cat: ${c.customerCategoryId}` : undefined
+    };
+  }), [customers, customerCategoryMap]);
 
-  const filteredNarrations = narrations.filter(n => 
-    n.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const supplyOrderOptions = useMemo(() => supplyOrders.map(o => ({
+    value: String(o.id),
+    label: o.title,
+    subtitle: `Order #${o.id}`
+  })), [supplyOrders]);
 
-  const filteredSupplyOrders = supplyOrders.filter(o => 
-    o.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const narrationOptions = useMemo(() => narrations.map(n => ({
+    value: n.code,
+    label: n.title
+  })), [narrations]);
 
   const filteredLines = useMemo(() => {
     if (!lineSearchQuery.trim()) return lines;
@@ -633,18 +752,7 @@ export function WandaSaleSupplyScreen() {
     });
   }, [lines, lineSearchQuery, customers]);
 
-  const getCustomerName = (accId: string) => {
-    const c = customers.find(item => item.account === accId);
-    if (!c) return 'Select Customer';
-    return c.parentCustomerTitle
-      ? `${c.title} (Sub of: ${c.parentCustomerTitle}) (${c.account})`
-      : `${c.title} (${c.account})`;
-  };
-
-  const getItemName = (id: string) => {
-    const i = items.find(item => item.id === id);
-    return i ? `${i.title} (${i.id})` : 'Select Item';
-  };
+  const selectedMasterItem = items.find(i => i.id === itemId);
 
   if (loading) {
     return (
@@ -659,7 +767,7 @@ export function WandaSaleSupplyScreen() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <Stack.Screen
         options={{
-          title: isEdit ? `Edit Sale Supply: ${voucherNo}` : 'New Sale Supply',
+          title: isEdit ? `Wanda Supply #${voucherNo}` : 'New Wanda Supply',
           headerBackTitle: 'Back',
           headerRight: () => (
             <View style={styles.headerRightActions}>
@@ -680,94 +788,201 @@ export function WandaSaleSupplyScreen() {
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={{ flex: 1 }}
       >
-        <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="document-text-outline" size={20} color={Theme.colors.primary} />
-              <Text style={styles.cardTitle}>Sheet Information</Text>
-            </View>
-
-            <View style={styles.row}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                <Text style={styles.label}>Voucher #</Text>
-                <TextInput
-                  style={[styles.textInput, styles.readOnlyInput]}
-                  value={voucherNo !== 'new' ? voucherNo : 'AUTO'}
-                  editable={false}
-                />
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 }}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
+            <TouchableOpacity
+              style={styles.cardHeaderToggle}
+              onPress={() => setHeaderExpanded(prev => !prev)}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <Ionicons name="document-text-outline" size={20} color={Theme.colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>Wanda Sheet Information</Text>
+                  <Text style={styles.cardSubtitle} numberOfLines={1}>
+                    {dayjs(date).format('DD-MMM-YYYY')} • {selectedMasterItem ? selectedMasterItem.title : 'Select Master Item'}
+                  </Text>
+                </View>
               </View>
+              <Ionicons
+                name={headerExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={Theme.colors.textSecondary}
+              />
+            </TouchableOpacity>
 
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Date *</Text>
-                <TouchableOpacity style={styles.dateSelector} onPress={() => setShowDatePicker(true)}>
-                  <Ionicons name="calendar-outline" size={16} color={Theme.colors.textSecondary} />
-                  <Text style={styles.dateText}>{dayjs(date).format('DD-MMM-YYYY')}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={(event, selectedDate) => {
-                  setShowDatePicker(false);
-                  if (selectedDate) setDate(selectedDate);
+            <View style={{ marginTop: Theme.spacing.sm }}>
+              <InlineSearchSelect
+                label="Master Feed Item *"
+                options={itemOptions}
+                value={itemId}
+                onSelect={(val) => {
+                  const found = items.find(i => i.id === val);
+                  if (found) handleItemSelect(found);
                 }}
+                placeholder="Search & select master feed item..."
+                icon="cube-outline"
               />
+            </View>
+
+            {headerExpanded && (
+              <View style={{ marginTop: Theme.spacing.xs }}>
+                <View style={styles.row}>
+                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                    <Text style={styles.label}>Voucher #</Text>
+                    <TextInput
+                      style={[styles.textInput, styles.readOnlyInput]}
+                      value={voucherNo !== 'new' ? voucherNo : 'AUTO'}
+                      editable={false}
+                    />
+                  </View>
+
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Date *</Text>
+                    <TouchableOpacity style={styles.dateSelector} onPress={() => setShowDatePicker(true)}>
+                      <Ionicons name="calendar-outline" size={16} color={Theme.colors.textSecondary} />
+                      <Text style={styles.dateText}>{dayjs(date).format('DD-MMM-YYYY')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={date}
+                    mode="date"
+                    display="default"
+                    onChange={(event, selectedDate) => {
+                      setShowDatePicker(false);
+                      if (selectedDate) setDate(selectedDate);
+                    }}
+                  />
+                )}
+
+                {!isEdit && (
+                  <View style={styles.inputGroup}>
+                    <InlineSearchSelect
+                      label="Supply Order (Optional Pre-fill)"
+                      options={supplyOrderOptions}
+                      value={supplyOrderId ? String(supplyOrderId) : ''}
+                      onSelect={(val) => {
+                        const found = supplyOrders.find(o => String(o.id) === val);
+                        if (found) handleSupplyOrderSelect(found);
+                      }}
+                      placeholder="Select Supply Order profile to pre-fill..."
+                      icon="list-outline"
+                      clearable
+                    />
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: 4,
+                    paddingVertical: 6,
+                  }}
+                  onPress={() => setNotesExpanded((p) => !p)}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: Theme.colors.primary }}>
+                    {notesExpanded || Boolean(narration || description)
+                      ? 'Hide Notes / Narration'
+                      : '+ Narration & Notes'}
+                  </Text>
+                  <Ionicons
+                    name={
+                      notesExpanded || Boolean(narration || description)
+                        ? 'chevron-up'
+                        : 'chevron-down'
+                    }
+                    size={14}
+                    color={Theme.colors.primary}
+                  />
+                </TouchableOpacity>
+
+                {(notesExpanded || Boolean(narration || description)) && (
+                  <>
+                    <View style={styles.inputGroup}>
+                      <InlineSearchSelect
+                        label="Narration"
+                        options={narrationOptions}
+                        value={narration}
+                        onSelect={setNarration}
+                        placeholder="Select Narration..."
+                        clearable
+                      />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Remarks / Description</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Optional vehicle or delivery notes"
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={description}
+                        onChangeText={setDescription}
+                      />
+                    </View>
+                  </>
+                )}
+              </View>
             )}
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Master Item *</Text>
-              <TouchableOpacity style={styles.selector} onPress={() => openSelector('item')}>
-                <Text style={[styles.selectorText, !itemId && styles.placeholder]}>{getItemName(itemId)}</Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Supply Order (Optional Pre-fill)</Text>
-              <TouchableOpacity 
-                style={[styles.selector, isEdit && styles.readOnlyInput]} 
-                onPress={() => !isEdit && openSelector('supplyOrder')}
-                disabled={isEdit}
-              >
-                <Text style={[styles.selectorText, !supplyOrderId && styles.placeholder]}>
-                  {supplyOrderId ? supplyOrders.find(o => o.id === supplyOrderId)?.title || `Order #${supplyOrderId}` : 'Select Order to Pre-fill'}
-                </Text>
-                {!isEdit && <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />}
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Narration</Text>
-              <TouchableOpacity style={styles.selector} onPress={() => openSelector('narration')}>
-                <Text style={[styles.selectorText, !narration && styles.placeholder]}>
-                  {narration ? narrations.find(n => n.code === narration)?.title || narration : 'Select Narration'}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Remarks / Description</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Optional vehicle or delivery notes"
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={description}
-                onChangeText={setDescription}
-              />
-            </View>
           </Animated.View>
+
+          {savedAttachments.length > 0 && (
+            <View style={styles.attachmentsCard}>
+              <View style={styles.attachmentsHeader}>
+                <Ionicons name="attach-outline" size={18} color={Theme.colors.primary} />
+                <Text style={styles.attachmentsTitle}>Saved Attachments ({savedAttachments.length})</Text>
+              </View>
+              {savedAttachments.map(att => (
+                <View key={att.id} style={styles.attachmentRow}>
+                  <TouchableOpacity
+                    style={styles.attachmentInfo}
+                    onPress={() => {
+                      const url = att.fileUrl || att.downloadUrl;
+                      if (url) Linking.openURL(url);
+                    }}
+                  >
+                    <Ionicons name="document-attach-outline" size={16} color={Theme.colors.primary} />
+                    <Text style={styles.attachmentName} numberOfLines={1}>
+                      {att.fileName || att.description || `Attachment #${att.id}`}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDeleteAttachment(att)} style={{ padding: 4 }}>
+                    <Ionicons name="trash-outline" size={16} color={Theme.colors.danger} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Fast Inline Customer Add Bar */}
+          <View style={styles.quickAddCustomerCard}>
+            <InlineSearchSelect
+              label="Quick Add Customer Delivery"
+              options={customerOptions}
+              value=""
+              onSelect={handleQuickAddCustomer}
+              placeholder="Tap to search & append customer row..."
+              icon="person-add-outline"
+            />
+          </View>
 
           <View style={styles.linesHeader}>
             <View>
               <Text style={styles.linesTitle}>Customer Deliveries</Text>
-              <Text style={styles.linesSubtitle}>{lines.length} {lines.length === 1 ? 'Customer' : 'Customers'}</Text>
+              <Text style={styles.linesSubtitle}>{totals.customers} Active • {lines.length} Total Rows</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
@@ -779,17 +994,17 @@ export function WandaSaleSupplyScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.addLineBtn} onPress={addLine}>
                 <Ionicons name="add" size={16} color={Theme.colors.white} />
-                <Text style={styles.addLineText}>Add Line</Text>
+                <Text style={styles.addLineText}>Blank Row</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {lines.length > 5 && (
+          {lines.length > 4 && (
             <View style={styles.searchBarContainer}>
               <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={{ marginRight: 8 }} />
               <TextInput
                 style={styles.searchBarInput}
-                placeholder="Search customers in lines..."
+                placeholder="Filter customers in sheet..."
                 placeholderTextColor={Theme.colors.textSecondary}
                 value={lineSearchQuery}
                 onChangeText={setLineSearchQuery}
@@ -805,24 +1020,30 @@ export function WandaSaleSupplyScreen() {
           {filteredLines.map((line, index) => {
             const lineAmount = round(((line.qty * line.rate) - line.discount) + ((line.secQty || 0) * (line.carriage || 0)) + line.addLess, 2);
             return (
-              <Animated.View key={line.seq} entering={FadeInUp.delay(index * 50).duration(400)} style={styles.lineCard}>
+              <Animated.View key={line.seq} entering={FadeInUp.delay(Math.min(index * 25, 250)).duration(300)} style={styles.lineCard}>
                 <View style={styles.lineCardHeader}>
                   <Text style={styles.lineSeq}>#{index + 1}</Text>
+                  <Text style={styles.lineInlineTotal}>
+                    Rs. {lineAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
                   <TouchableOpacity onPress={() => removeLine(line.seq)} disabled={lines.length === 1}>
-                    <Ionicons name="trash-outline" size={20} color={lines.length === 1 ? Theme.colors.border : Theme.colors.danger} />
+                    <Ionicons name="trash-outline" size={18} color={lines.length === 1 ? Theme.colors.border : Theme.colors.danger} />
                   </TouchableOpacity>
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Customer *</Text>
-                  <TouchableOpacity style={styles.selector} onPress={() => openSelector('customer', line.seq)}>
-                    <Text style={[styles.selectorText, !line.customerId && styles.placeholder]}>{getCustomerName(line.customerId)}</Text>
-                    <Ionicons name="chevron-down" size={16} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
+                  <InlineSearchSelect
+                    options={customerOptions}
+                    value={line.customerId}
+                    onSelect={(val) => handleCustomerSelect(line.seq, val)}
+                    placeholder="Select Customer..."
+                    icon="person-outline"
+                    compact
+                  />
                 </View>
 
                 <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
+                  <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
                     <Text style={styles.label}>Qty (Kg) *</Text>
                     <TextInput
                       style={styles.textInput}
@@ -831,10 +1052,11 @@ export function WandaSaleSupplyScreen() {
                       value={String(line.qty)}
                       onChangeText={(val) => updateLineField(line.seq, 'qty', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Bag Qty</Text>
+                  <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
+                    <Text style={styles.label}>Bags</Text>
                     <TextInput
                       style={styles.textInput}
                       placeholder="0"
@@ -842,13 +1064,11 @@ export function WandaSaleSupplyScreen() {
                       value={String(line.secQty ?? 0)}
                       onChangeText={(val) => updateLineField(line.seq, 'secQty', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Pack Qty</Text>
+                  <View style={[styles.inputGroup, { flex: 0.8, marginRight: 6 }]}>
+                    <Text style={styles.label}>PackKg</Text>
                     <TextInput
                       style={styles.textInput}
                       placeholder="0"
@@ -856,9 +1076,10 @@ export function WandaSaleSupplyScreen() {
                       value={String((line as any).packQty ?? 0)}
                       onChangeText={(val) => updateLineField(line.seq, 'packQty', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                  <View style={[styles.inputGroup, { flex: 0.8 }]}>
                     <Text style={styles.label}>Packing</Text>
                     <TextInput
                       style={styles.textInput}
@@ -867,13 +1088,14 @@ export function WandaSaleSupplyScreen() {
                       value={String((line as any).packing ?? 0)}
                       onChangeText={(val) => updateLineField(line.seq, 'packing', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
                 </View>
 
                 <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Rate (/Kg) *</Text>
+                  <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
+                    <Text style={styles.label}>Rate (/Kg)</Text>
                     <TextInput
                       style={styles.textInput}
                       placeholder="0.00"
@@ -881,9 +1103,10 @@ export function WandaSaleSupplyScreen() {
                       value={String(round(line.rate, 2))}
                       onChangeText={(val) => updateLineField(line.seq, 'rate', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                  <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
                     <Text style={styles.label}>Bag Rate</Text>
                     <TextInput
                       style={styles.textInput}
@@ -892,58 +1115,46 @@ export function WandaSaleSupplyScreen() {
                       value={String(round(line.secRate ?? 0, 2))}
                       onChangeText={(val) => updateLineField(line.seq, 'secRate', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Disc (/Kg)</Text>
+                  <View style={[styles.inputGroup, { flex: 0.8, marginRight: 6 }]}>
+                    <Text style={styles.label}>Disc</Text>
                     <TextInput
                       style={styles.textInput}
-                      placeholder="0.00"
+                      placeholder="0"
                       placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.discount)}
                       onChangeText={(val) => updateLineField(line.seq, 'discount', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Add / Less</Text>
+                  <View style={[styles.inputGroup, { flex: 0.8 }]}>
+                    <Text style={styles.label}>Add/Less</Text>
                     <TextInput
                       style={styles.textInput}
-                      placeholder="0.00"
+                      placeholder="0"
                       placeholderTextColor={Theme.colors.textSecondary}
                       value={String(line.addLess)}
                       onChangeText={(val) => updateLineField(line.seq, 'addLess', val)}
                       keyboardType="numeric"
+                      selectTextOnFocus
                     />
                   </View>
-                </View>
-
-                <View style={styles.lineFooter}>
-                  <Text style={styles.lineFooterLabel}>Line Total</Text>
-                  <Text style={styles.lineFooterAmount}>Rs. {lineAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                 </View>
               </Animated.View>
             );
           })}
-          <View style={{ height: 120 }} />
+          <View style={{ height: 130 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
       <View style={styles.footer}>
         <View style={styles.totalsSummary}>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Qty:</Text>
-            <Text style={styles.totalValue}>{totals.qty.toLocaleString()} Kg</Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Bags:</Text>
-            <Text style={styles.totalValue}>{totals.secQty.toLocaleString()}</Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Amount:</Text>
+            <Text style={styles.totalLabel}>Kg: <Text style={styles.totalValue}>{totals.qty.toLocaleString()}</Text></Text>
+            <Text style={styles.totalLabel}>Bags: <Text style={styles.totalValue}>{totals.secQty.toLocaleString()}</Text></Text>
             <Text style={styles.grandTotalValue}>Rs. {totals.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
           </View>
         </View>
@@ -963,112 +1174,6 @@ export function WandaSaleSupplyScreen() {
           )}
         </TouchableOpacity>
       </View>
-
-      <Modal
-        visible={selectModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setSelectModalVisible(false)}
-      >
-        <SafeAreaView style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {selectModalType === 'item' && 'Select Master Item'}
-                {selectModalType === 'customer' && 'Select Customer'}
-                {selectModalType === 'narration' && 'Select Narration'}
-                {selectModalType === 'supplyOrder' && 'Select Supply Order Profile'}
-              </Text>
-              <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
-                <Ionicons name="close" size={24} color={Theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalSearchBox}>
-              <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.modalSearchInput}
-                placeholder="Search..."
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
-            </View>
-
-            <ScrollView style={styles.modalList}>
-              {selectModalType === 'item' && filteredItems.map(item => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.modalListItem}
-                  onPress={() => {
-                    handleItemSelect(item);
-                    setSelectModalVisible(false);
-                  }}
-                >
-                  <View>
-                    <Text style={styles.modalItemTitle}>{item.title}</Text>
-                    <Text style={styles.modalItemSubtitle}>Code: {item.id} • Rate: Rs. {item.priRate || 0}/Kg</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
-                </TouchableOpacity>
-              ))}
-
-              {selectModalType === 'customer' && filteredCustomers.map(cust => (
-                <TouchableOpacity
-                  key={cust.account}
-                  style={styles.modalListItem}
-                  onPress={() => {
-                    if (activeLineSeq !== null) {
-                      handleCustomerSelect(activeLineSeq, cust.account);
-                    }
-                    setSelectModalVisible(false);
-                  }}
-                >
-                  <View>
-                    <Text style={styles.modalItemTitle}>{cust.title}</Text>
-                    <Text style={styles.modalItemSubtitle}>
-                      {cust.parentCustomerTitle ? `Sub of: ${cust.parentCustomerTitle} • ` : ''}Account: {cust.account}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
-                </TouchableOpacity>
-              ))}
-
-              {selectModalType === 'narration' && filteredNarrations.map(narr => (
-                <TouchableOpacity
-                  key={narr.code}
-                  style={styles.modalListItem}
-                  onPress={() => {
-                    setNarration(narr.code);
-                    setSelectModalVisible(false);
-                  }}
-                >
-                  <Text style={styles.modalItemTitle}>{narr.title}</Text>
-                  <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
-                </TouchableOpacity>
-              ))}
-
-              {selectModalType === 'supplyOrder' && filteredSupplyOrders.map(order => (
-                <TouchableOpacity
-                  key={order.id}
-                  style={styles.modalListItem}
-                  onPress={() => {
-                    handleSupplyOrderSelect(order);
-                    setSelectModalVisible(false);
-                  }}
-                >
-                  <View>
-                    <Text style={styles.modalItemTitle}>{order.title}</Text>
-                    <Text style={styles.modalItemSubtitle}>ID: #{order.id}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Theme.colors.border} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </SafeAreaView>
-      </Modal>
 
       <ScanSupplySheetModal
         visible={scanModalVisible}
@@ -1113,33 +1218,37 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.surface,
     borderRadius: Theme.borderRadius.md,
     padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+    marginBottom: Theme.spacing.sm,
     borderWidth: 1,
     borderColor: Theme.colors.border
   },
-  cardHeader: {
+  cardHeaderToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Theme.spacing.md,
-    gap: Theme.spacing.xs
+    justifyContent: 'space-between'
   },
   cardTitle: {
-    fontSize: Theme.typography.sizes.h3,
+    fontSize: Theme.typography.sizes.body,
     fontWeight: 'bold',
     color: Theme.colors.text
+  },
+  cardSubtitle: {
+    fontSize: Theme.typography.sizes.caption,
+    color: Theme.colors.textSecondary,
+    marginTop: 2
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center'
   },
   inputGroup: {
-    marginBottom: Theme.spacing.sm
+    marginBottom: Theme.spacing.xs
   },
   label: {
-    fontSize: Theme.typography.sizes.caption,
+    fontSize: 11,
     fontWeight: '600',
     color: Theme.colors.textSecondary,
-    marginBottom: 4
+    marginBottom: 3
   },
   textInput: {
     backgroundColor: Theme.colors.surface,
@@ -1147,7 +1256,7 @@ const styles = StyleSheet.create({
     borderColor: Theme.colors.border,
     borderRadius: Theme.borderRadius.sm,
     paddingHorizontal: Theme.spacing.sm,
-    height: 40,
+    height: 38,
     fontSize: Theme.typography.sizes.body,
     color: Theme.colors.text
   },
@@ -1163,41 +1272,69 @@ const styles = StyleSheet.create({
     borderColor: Theme.colors.border,
     borderRadius: Theme.borderRadius.sm,
     paddingHorizontal: Theme.spacing.sm,
-    height: 40,
+    height: 38,
     gap: Theme.spacing.xs
   },
   dateText: {
     fontSize: Theme.typography.sizes.body,
     color: Theme.colors.text
   },
-  selector: {
+  attachmentsCard: {
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.borderRadius.md,
+    padding: Theme.spacing.sm,
+    marginBottom: Theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border
+  },
+  attachmentsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6
+  },
+  attachmentsTitle: {
+    fontSize: Theme.typography.sizes.caption,
+    fontWeight: '700',
+    color: Theme.colors.text
+  },
+  attachmentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Theme.colors.surface,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.borderRadius.sm,
-    paddingHorizontal: Theme.spacing.sm,
-    height: 40
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: Theme.colors.border
   },
-  selectorText: {
-    fontSize: Theme.typography.sizes.body,
-    color: Theme.colors.text,
+  attachmentInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     flex: 1
   },
-  placeholder: {
-    color: Theme.colors.textSecondary
+  attachmentName: {
+    fontSize: Theme.typography.sizes.caption,
+    color: Theme.colors.primary,
+    textDecorationLine: 'underline',
+    flex: 1
+  },
+  quickAddCustomerCard: {
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.borderRadius.md,
+    padding: Theme.spacing.sm,
+    marginBottom: Theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.primary + '40'
   },
   linesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: Theme.spacing.sm,
+    marginTop: Theme.spacing.xs,
     marginBottom: Theme.spacing.sm
   },
   linesTitle: {
-    fontSize: Theme.typography.sizes.h3,
+    fontSize: Theme.typography.sizes.body,
     fontWeight: 'bold',
     color: Theme.colors.text
   },
@@ -1209,7 +1346,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Theme.colors.primary,
-    paddingVertical: Theme.spacing.xs,
+    paddingVertical: 6,
     paddingHorizontal: Theme.spacing.sm,
     borderRadius: Theme.borderRadius.sm,
     gap: 4
@@ -1238,7 +1375,7 @@ const styles = StyleSheet.create({
   lineCard: {
     backgroundColor: Theme.colors.surface,
     borderRadius: Theme.borderRadius.md,
-    padding: Theme.spacing.md,
+    padding: Theme.spacing.sm,
     marginBottom: Theme.spacing.sm,
     borderWidth: 1,
     borderColor: Theme.colors.border
@@ -1247,28 +1384,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.xs
+    marginBottom: 6
   },
   lineSeq: {
     fontSize: Theme.typography.sizes.caption,
     fontWeight: 'bold',
     color: Theme.colors.primary
   },
-  lineFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Theme.spacing.xs,
-    paddingTop: Theme.spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: Theme.colors.border
-  },
-  lineFooterLabel: {
-    fontSize: Theme.typography.sizes.caption,
-    fontWeight: 'bold',
-    color: Theme.colors.textSecondary
-  },
-  lineFooterAmount: {
+  lineInlineTotal: {
     fontSize: Theme.typography.sizes.body,
     fontWeight: 'bold',
     color: Theme.colors.primary
@@ -1277,19 +1400,20 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.surface,
     borderTopWidth: 1,
     borderTopColor: Theme.colors.border,
-    padding: Theme.spacing.md,
+    paddingHorizontal: Theme.spacing.md,
+    paddingVertical: Theme.spacing.sm,
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0
   },
   totalsSummary: {
-    marginBottom: Theme.spacing.sm
+    marginBottom: 6
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 2
+    alignItems: 'center'
   },
   totalLabel: {
     fontSize: Theme.typography.sizes.caption,
@@ -1297,7 +1421,7 @@ const styles = StyleSheet.create({
   },
   totalValue: {
     fontSize: Theme.typography.sizes.caption,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Theme.colors.text
   },
   grandTotalValue: {
@@ -1310,7 +1434,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 48,
+    height: 44,
     borderRadius: Theme.borderRadius.md,
     gap: Theme.spacing.xs
   },
@@ -1321,65 +1445,5 @@ const styles = StyleSheet.create({
     color: Theme.colors.white,
     fontSize: Theme.typography.sizes.body,
     fontWeight: 'bold'
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end'
-  },
-  modalContent: {
-    backgroundColor: Theme.colors.surface,
-    borderTopLeftRadius: Theme.borderRadius.lg,
-    borderTopRightRadius: Theme.borderRadius.lg,
-    maxHeight: '80%',
-    padding: Theme.spacing.md
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Theme.spacing.md
-  },
-  modalTitle: {
-    fontSize: Theme.typography.sizes.h3,
-    fontWeight: 'bold',
-    color: Theme.colors.text
-  },
-  modalSearchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.borderRadius.md,
-    paddingHorizontal: Theme.spacing.sm,
-    height: 40,
-    marginBottom: Theme.spacing.md
-  },
-  modalSearchInput: {
-    flex: 1,
-    fontSize: Theme.typography.sizes.body,
-    color: Theme.colors.text
-  },
-  modalList: {
-    maxHeight: 400
-  },
-  modalListItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Theme.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border
-  },
-  modalItemTitle: {
-    fontSize: Theme.typography.sizes.body,
-    fontWeight: '600',
-    color: Theme.colors.text
-  },
-  modalItemSubtitle: {
-    fontSize: Theme.typography.sizes.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2
   }
 });

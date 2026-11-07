@@ -53,7 +53,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
 
   const router = useRouter();
   const pathname = usePathname();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<any>(null);
   const { voiceLanguage, setVoiceLanguage } = useAppStore();
 
   const handleCycleLanguage = () => {

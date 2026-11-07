@@ -15,32 +15,60 @@ import { useAuthStore } from '../../store/authStore';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { dashboardService, DashboardStatsDto, SalesTrendDto, RecentPaymentDto } from '../../services/dashboardService';
+import {
+  dashboardService,
+  DashboardStatsDto,
+  SalesTrendDto,
+  CashFlowTrendDto,
+  ExpenseCategoryDto,
+  RecentExpenseDto,
+  StockStatusDto,
+  RecentPaymentDto
+} from '../../services/dashboardService';
 import { LineChart } from 'react-native-gifted-charts';
 
 const screenWidth = Dimensions.get('window').width;
 
 export default function DashboardScreen() {
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
   const router = useRouter();
 
   const [stats, setStats] = useState<DashboardStatsDto | null>(null);
   const [salesTrend, setSalesTrend] = useState<SalesTrendDto[]>([]);
+  const [cashFlowTrend, setCashFlowTrend] = useState<CashFlowTrendDto[]>([]);
+  const [expensesByCategory, setExpensesByCategory] = useState<ExpenseCategoryDto[]>([]);
+  const [recentExpenses, setRecentExpenses] = useState<RecentExpenseDto[]>([]);
+  const [stockStatus, setStockStatus] = useState<StockStatusDto[]>([]);
   const [recentPayments, setRecentPayments] = useState<RecentPaymentDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = async () => {
     try {
-      const [statsData, trendData, paymentsData] = await Promise.all([
-        dashboardService.getStats(),
-        dashboardService.getSalesTrend(),
-        dashboardService.getRecentPayments()
+      const [
+        statsData,
+        trendData,
+        cashFlowData,
+        expCatData,
+        recExpData,
+        stockData,
+        paymentsData
+      ] = await Promise.all([
+        dashboardService.getStats().catch(() => null),
+        dashboardService.getSalesTrend().catch(() => []),
+        dashboardService.getCashFlowTrend().catch(() => []),
+        dashboardService.getExpensesByCategory().catch(() => []),
+        dashboardService.getRecentExpenses().catch(() => []),
+        dashboardService.getStockStatus().catch(() => []),
+        dashboardService.getRecentPayments().catch(() => [])
       ]);
-      setStats(statsData);
-      setSalesTrend(trendData);
-      setRecentPayments(paymentsData);
+      if (statsData) setStats(statsData);
+      setSalesTrend(trendData || []);
+      setCashFlowTrend(cashFlowData || []);
+      setExpensesByCategory(expCatData || []);
+      setRecentExpenses(recExpData || []);
+      setStockStatus(stockData || []);
+      setRecentPayments(paymentsData || []);
     } catch (error) {
       console.log('Failed to fetch dashboard data', error);
     } finally {
@@ -58,16 +86,11 @@ export default function DashboardScreen() {
     fetchData();
   };
 
-  const handleLogout = () => {
-    logout();
-    router.replace('/(auth)/login');
-  };
-
   const SummaryCard = ({ title, value, icon, color, delay }: any) => (
-    <Animated.View entering={FadeInDown.delay(delay).duration(600)} style={[styles.card, { borderLeftColor: color, borderLeftWidth: 4 }]}>
+    <Animated.View entering={FadeInDown.delay(delay).duration(500)} style={[styles.card, { borderLeftColor: color, borderLeftWidth: 4 }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.iconContainer, { backgroundColor: color + '20' }]}>
-          <Ionicons name={icon} size={24} color={color} />
+          <Ionicons name={icon} size={22} color={color} />
         </View>
       </View>
       <Text style={styles.cardTitle}>{title}</Text>
@@ -83,9 +106,11 @@ export default function DashboardScreen() {
     );
   }
 
-  // Format chart data
-  const chartLabels = salesTrend.length > 0 ? salesTrend.map(s => s.month.substring(0, 3)) : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-  const chartData = salesTrend.length > 0 ? salesTrend.map(s => s.sales) : [0, 0, 0, 0, 0, 0];
+  const lowStockItems = stockStatus.filter(
+    s => s.status === 'Low Stock' || s.status === 'Out of Stock' || s.lowStockAlert
+  );
+
+  const totalExpenseCatSum = expensesByCategory.reduce((acc, e) => acc + (e.value || 0), 0);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -94,12 +119,11 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-
         {/* Header Section */}
-        <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
+        <Animated.View entering={FadeInDown.duration(500)} style={styles.header}>
           <View>
             <Text style={styles.greeting}>Hello, {user?.email?.split('@')[0] || 'Admin'} 👋</Text>
-            <Text style={styles.subtitle}>Here is your summary today</Text>
+            <Text style={styles.subtitle}>Here is your business overview today</Text>
           </View>
           <TouchableOpacity onPress={() => router.push('/profile')} style={styles.profileBtn}>
             <Ionicons name="person-outline" size={24} color={Theme.colors.primary} />
@@ -111,32 +135,67 @@ export default function DashboardScreen() {
           <SummaryCard
             title="Total Sales (MTD)"
             value={stats ? `Rs. ${stats.totalSalesMTD.toLocaleString(undefined, { minimumFractionDigits: 0 })}` : 'Rs. 0'}
-            icon="cart-outline" color={Theme.colors.primary} delay={200}
+            icon="cart-outline" color={Theme.colors.primary} delay={150}
           />
           <SummaryCard
-            title="Cash In"
+            title="Cash In (MTD)"
             value={stats ? `Rs. ${stats.cashInMTD.toLocaleString(undefined, { minimumFractionDigits: 0 })}` : 'Rs. 0'}
-            icon="arrow-down-outline" color={Theme.colors.success} delay={300}
+            icon="arrow-down-outline" color={Theme.colors.success} delay={250}
           />
           <SummaryCard
-            title="Cash Out"
+            title="Cash Out (MTD)"
             value={stats ? `Rs. ${stats.cashOutMTD.toLocaleString(undefined, { minimumFractionDigits: 0 })}` : 'Rs. 0'}
-            icon="arrow-up-outline" color={Theme.colors.danger} delay={400}
+            icon="arrow-up-outline" color={Theme.colors.danger} delay={350}
           />
           <SummaryCard
             title="Total Stock Value"
             value={stats ? `Rs. ${stats.totalStockValue.toLocaleString(undefined, { minimumFractionDigits: 0 })}` : 'Rs. 0'}
-            icon="cube-outline" color={Theme.colors.warning} delay={500}
+            icon="cube-outline" color={Theme.colors.warning} delay={450}
           />
         </View>
 
-        {/* Sales Graph */}
-        <Animated.View entering={FadeInDown.delay(600).duration(600)} style={styles.chartSection}>
+        {/* Low Stock Alert Banner / Section */}
+        {lowStockItems.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(500).duration(500)} style={styles.lowStockSection}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="warning-outline" size={20} color="#d97706" />
+                <Text style={styles.sectionTitleInline}>Low Stock Alerts ({lowStockItems.length})</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => router.push({ pathname: '/(tabs)/reports', params: { reportType: 'stock_balance' } })}
+              >
+                <Text style={styles.linkText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            {lowStockItems.slice(0, 5).map((item, idx) => {
+              const isOut = item.qty <= 0 || item.status === 'Out of Stock';
+              return (
+                <View key={`${item.code || item.name}_${idx}`} style={styles.stockRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.stockMeta}>
+                      Threshold: {item.lowStockQty ?? 0} • Value: Rs. {(item.value || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={[styles.stockBadge, { backgroundColor: isOut ? '#fef2f2' : '#fffbeb' }]}>
+                    <Text style={[styles.stockBadgeText, { color: isOut ? '#dc2626' : '#d97706' }]}>
+                      {item.qty} Left
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </Animated.View>
+        )}
+
+        {/* Sales Trend Graph */}
+        <Animated.View entering={FadeInDown.delay(550).duration(500)} style={styles.chartSection}>
           <Text style={styles.sectionTitle}>Sales Trend (Last 7 Months)</Text>
           <LineChart
             data={salesTrend.length > 0 ? salesTrend.map(s => ({ value: s.sales, label: s.month.substring(0, 3) })) : [{ value: 0, label: 'Jan' }]}
             width={screenWidth - Theme.spacing.md * 2 - 80}
-            height={220}
+            height={200}
             thickness={3}
             color={Theme.colors.primary}
             dataPointsColor={Theme.colors.primary}
@@ -162,8 +221,91 @@ export default function DashboardScreen() {
           />
         </Animated.View>
 
+        {/* Cash Flow Trend Section */}
+        {cashFlowTrend.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(600).duration(500)} style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleInline}>Cash Flow Trend (In vs Out)</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Theme.colors.success }} />
+                  <Text style={{ fontSize: 11, color: Theme.colors.textSecondary }}>In</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Theme.colors.danger }} />
+                  <Text style={{ fontSize: 11, color: Theme.colors.textSecondary }}>Out</Text>
+                </View>
+              </View>
+            </View>
+            {cashFlowTrend.slice(-6).map((cf, idx) => {
+              const maxVal = Math.max(cf.cashIn || 0, cf.cashOut || 0, 1);
+              const inPct = Math.min(100, Math.round(((cf.cashIn || 0) / maxVal) * 100));
+              const outPct = Math.min(100, Math.round(((cf.cashOut || 0) / maxVal) * 100));
+              return (
+                <View key={`${cf.month}_${idx}`} style={styles.cfRow}>
+                  <Text style={styles.cfMonth}>{cf.month.substring(0, 3)}</Text>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <View style={styles.cfBarTrack}>
+                      <View style={[styles.cfBarFill, { width: `${inPct}%`, backgroundColor: Theme.colors.success }]} />
+                    </View>
+                    <View style={styles.cfBarTrack}>
+                      <View style={[styles.cfBarFill, { width: `${outPct}%`, backgroundColor: Theme.colors.danger }]} />
+                    </View>
+                  </View>
+                  <View style={styles.cfValues}>
+                    <Text style={[styles.cfValText, { color: Theme.colors.success }]}>
+                      +{((cf.cashIn || 0) / 1000).toFixed(0)}k
+                    </Text>
+                    <Text style={[styles.cfValText, { color: Theme.colors.danger }]}>
+                      -{((cf.cashOut || 0) / 1000).toFixed(0)}k
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </Animated.View>
+        )}
+
+        {/* Expenses by Category & Recent Expenses */}
+        {(expensesByCategory.length > 0 || recentExpenses.length > 0) && (
+          <Animated.View entering={FadeInDown.delay(650).duration(500)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Expenses Breakdown (MTD)</Text>
+            {expensesByCategory.slice(0, 5).map((exp, idx) => {
+              const pct = totalExpenseCatSum > 0 ? Math.round((exp.value / totalExpenseCatSum) * 100) : 0;
+              return (
+                <View key={`${exp.category}_${idx}`} style={styles.expCatRow}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={styles.expCatName}>{exp.category}</Text>
+                    <Text style={styles.expCatAmount}>Rs. {exp.value.toLocaleString()} ({pct}%)</Text>
+                  </View>
+                  <View style={styles.cfBarTrack}>
+                    <View style={[styles.cfBarFill, { width: `${pct}%`, backgroundColor: '#8b5cf6' }]} />
+                  </View>
+                </View>
+              );
+            })}
+
+            {recentExpenses.length > 0 && (
+              <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: Theme.colors.border }}>
+                <Text style={[styles.cardTitle, { fontWeight: '700', marginBottom: 8 }]}>Recent Expense Vouchers</Text>
+                {recentExpenses.slice(0, 4).map((re, idx) => (
+                  <View key={`${re.id}_${idx}`} style={styles.recentExpenseRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.activityTitle} numberOfLines={1}>{re.category}</Text>
+                      <Text style={styles.activityTime}>{new Date(re.date).toLocaleDateString()} • #{re.id}</Text>
+                    </View>
+                    <Text style={[styles.activityAmount, { color: Theme.colors.danger }]}>
+                      Rs. {re.amount.toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Animated.View>
+        )}
+
         {/* Recent Payments Section */}
-        <Animated.View entering={FadeInDown.delay(700).duration(600)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(700).duration(500)} style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Transactions</Text>
           </View>
@@ -216,8 +358,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.xl,
-    marginTop: Theme.spacing.md,
+    marginBottom: Theme.spacing.lg,
+    marginTop: Theme.spacing.sm,
   },
   greeting: {
     ...Theme.typography.h2,
@@ -239,7 +381,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: Theme.spacing.md,
-    marginBottom: Theme.spacing.xl,
+    marginBottom: Theme.spacing.lg,
   },
   card: {
     width: '47%',
@@ -252,11 +394,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: Theme.spacing.md,
+    marginBottom: Theme.spacing.sm,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     borderRadius: Theme.radii.round,
     justifyContent: 'center',
     alignItems: 'center',
@@ -270,29 +412,128 @@ const styles = StyleSheet.create({
     ...Theme.typography.h3,
     color: Theme.colors.text,
   },
+  lowStockSection: {
+    backgroundColor: '#fffbeb',
+    borderRadius: Theme.radii.lg,
+    padding: Theme.spacing.md,
+    marginBottom: Theme.spacing.lg,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionTitleInline: {
+    ...Theme.typography.h3,
+    color: Theme.colors.text,
+  },
+  linkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  stockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#fef3c7',
+  },
+  stockName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+  stockMeta: {
+    fontSize: 11,
+    color: Theme.colors.textSecondary,
+  },
+  stockBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  stockBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   chartSection: {
     backgroundColor: Theme.colors.white,
     borderRadius: Theme.radii.xl,
     padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.xl,
+    marginBottom: Theme.spacing.lg,
     ...Theme.shadows.sm,
   },
   section: {
     backgroundColor: Theme.colors.white,
     borderRadius: Theme.radii.xl,
     padding: Theme.spacing.md,
+    marginBottom: Theme.spacing.lg,
     ...Theme.shadows.sm,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.lg,
+    marginBottom: Theme.spacing.sm,
   },
   sectionTitle: {
     ...Theme.typography.h3,
     color: Theme.colors.text,
     marginBottom: 10,
+  },
+  cfRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  cfMonth: {
+    width: 34,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+  },
+  cfBarTrack: {
+    height: 7,
+    backgroundColor: Theme.colors.background,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  cfBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  cfValues: {
+    width: 55,
+    alignItems: 'flex-end',
+  },
+  cfValText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  expCatRow: {
+    marginBottom: 10,
+  },
+  expCatName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+  expCatAmount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6d28d9',
+  },
+  recentExpenseRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
   },
   emptyText: {
     ...Theme.typography.body,
@@ -303,7 +544,7 @@ const styles = StyleSheet.create({
   activityItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Theme.spacing.lg,
+    marginBottom: Theme.spacing.md,
   },
   activityContent: {
     flex: 1,

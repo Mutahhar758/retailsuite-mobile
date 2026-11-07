@@ -40,6 +40,25 @@ export interface PurchaseLineDto {
   lastModifiedOn?: string;
 }
 
+export interface PurchasePaymentRequest {
+  seq: number;
+  accountId: string;
+  amount: number;
+  reference?: string;
+  checkNum?: string;
+  checkDate?: string;
+}
+
+export interface PurchasePaymentResponse {
+  seq: number;
+  accountId: string;
+  accountTitle?: string;
+  amount: number;
+  reference?: string;
+  checkNum?: string;
+  checkDate?: string;
+}
+
 export interface PurchaseLineRequest {
   seq: number;
   itemId: string;
@@ -53,6 +72,7 @@ export interface PurchaseLineRequest {
   qtyInPack?: number | null;
   packing?: number | null;
   packQty?: number;
+  imei?: string;
 }
 
 export interface PurchaseCreateRequest {
@@ -62,7 +82,10 @@ export interface PurchaseCreateRequest {
   narration?: string;
   cashPaid?: number;
   cashBack?: number;
+  sellerCnic?: string;
+  sellerContact?: string;
   lines: PurchaseLineRequest[];
+  payments?: PurchasePaymentRequest[];
 }
 
 export interface PurchaseUpdateRequest {
@@ -72,7 +95,10 @@ export interface PurchaseUpdateRequest {
   narration?: string;
   cashPaid?: number;
   cashBack?: number;
+  sellerCnic?: string;
+  sellerContact?: string;
   lines: PurchaseLineRequest[];
+  payments?: PurchasePaymentRequest[];
 }
 
 export const purchaseService = {
@@ -98,6 +124,11 @@ export const purchaseService = {
   async getDetail(voucherNo: string) {
     const response = await api.get(`/api/purchases/${voucherNo}`);
     return response.data.body as PurchaseLineDto[];
+  },
+
+  async getPayments(voucherNo: string) {
+    const response = await api.get(`/api/purchases/${voucherNo}/payments`);
+    return (response.data.body ?? []) as PurchasePaymentResponse[];
   },
 
   async create(request: PurchaseCreateRequest) {

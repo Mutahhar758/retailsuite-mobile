@@ -112,7 +112,7 @@ export default function ReceiptsListScreen() {
           renderItem={renderItem}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Theme.colors.primary} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={Theme.colors.primary} /> : undefined}
           contentContainerStyle={styles.listContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Theme.colors.primary} />

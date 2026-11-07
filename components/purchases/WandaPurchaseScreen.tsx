@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,34 +10,47 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import dayjs from 'dayjs';
 import { Theme } from '../../constants/theme';
 import { extractErrorMessage } from '../../services/api';
 import { purchaseService, PurchaseLineRequest } from '../../services/purchaseService';
-import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
+import {
+  chartOfAccountService,
+  ChartOfAccountHeadDto,
+} from '../../services/chartOfAccountService';
 import { narrationService, NarrationDto } from '../../services/narrationService';
 import { inventoryService, Item } from '../../services/inventoryService';
+import { itemCategoryService } from '../../services/itemCategoryService';
 import { round } from '../../utils/numberUtils';
+import { InlineSearchSelect, InlineSelectOption } from '../ui/InlineSearchSelect';
+import { FastItemEntryBar } from '../ui/FastItemEntryBar';
+import { useKeyboard } from '../../hooks/useKeyboard';
+import {
+  MobileMultiPaymentSection,
+  PaymentSplitRow,
+} from '../ui/MobileMultiPaymentSection';
 
 export function WandaPurchaseScreen() {
   const { voucherNo, mode } = useLocalSearchParams<{ voucherNo: string; mode?: string }>();
   const router = useRouter();
-  const isEdit = voucherNo && voucherNo !== 'new' && mode !== 'copy';
+  const isEdit = Boolean(voucherNo && voucherNo !== 'new' && mode !== 'copy');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
   // Lookups
   const [suppliers, setSuppliers] = useState<ChartOfAccountHeadDto[]>([]);
   const [narrations, setNarrations] = useState<NarrationDto[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+
+  // UI Mode
+  const [headerExpanded, setHeaderExpanded] = useState(true);
+  const [entryMode, setEntryMode] = useState<'list' | 'grid'>('list');
 
   // Form State
   const [date, setDate] = useState(new Date());
@@ -45,21 +58,13 @@ export function WandaPurchaseScreen() {
   const [supplierAccount, setSupplierAccount] = useState('');
   const [narration, setNarration] = useState('');
   const [description, setDescription] = useState('');
-  const [cashPaid, setCashPaid] = useState<string>('');
-  const [cashBack, setCashBack] = useState<string>('0');
-  const prevTotalRef = useRef<number>(0);
-  
-  // Lines State
-  const [lines, setLines] = useState<PurchaseLineRequest[]>([]);
-  
-  // Line Modal State
-  const [lineModalVisible, setLineModalVisible] = useState(false);
-  const [currentLine, setCurrentLine] = useState<Partial<PurchaseLineRequest>>({});
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
-  // Searchable Selection Modal State
-  const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState<'supplier' | 'narration' | 'item'>('supplier');
-  const [searchQuery, setSearchQuery] = useState('');
+  // Lines & Payments
+  const [lines, setLines] = useState<PurchaseLineRequest[]>([]);
+  const [payments, setPayments] = useState<PaymentSplitRow[]>([]);
+  const [legacyCashPaid, setLegacyCashPaid] = useState<number>(0);
 
   useEffect(() => {
     fetchLookups();
@@ -67,21 +72,29 @@ export function WandaPurchaseScreen() {
 
   const fetchLookups = async () => {
     try {
-      const [sups, narrs, itms] = await Promise.all([
+      const [sups, narrs, itms, itmCats] = await Promise.all([
         chartOfAccountService.getSupplierAccounts(),
         narrationService.getActiveNarrationsLookup(),
-        inventoryService.getItemsLookup(undefined, true)
+        inventoryService.getItemsLookup(undefined, true),
+        itemCategoryService.getActiveItemCategoriesLookup().catch(() => []),
       ]);
-      setSuppliers(sups || []);
+      const safeSups = sups || [];
+      const itmCatMap = new Map<string, string>((itmCats || []).map((c) => [c.code, c.title]));
+      const safeItems = (itms || []).map((i) => ({
+        ...i,
+        itemCategoryTitle: i.itemCategoryTitle || itmCatMap.get(i.itemCategoryCode) || i.itemCategoryCode,
+      }));
+      setSuppliers(safeSups);
       setNarrations(narrs || []);
-      setItems(itms || []);
-      
+      setItems(safeItems);
+
       if (voucherNo && voucherNo !== 'new') {
         await loadVoucherDetails();
       } else {
+        if (safeSups.length > 0) setSupplierAccount(safeSups[0].account);
         setLoading(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load form data.');
       setLoading(false);
     }
@@ -89,34 +102,52 @@ export function WandaPurchaseScreen() {
 
   const loadVoucherDetails = async () => {
     try {
-      const details = await purchaseService.getDetail(voucherNo!);
+      const [details, savedPayments] = await Promise.all([
+        purchaseService.getDetail(voucherNo!),
+        mode === 'copy'
+          ? Promise.resolve([])
+          : purchaseService.getPayments(voucherNo!).catch(() => []),
+      ]);
       if (details && details.length > 0) {
         const first = details[0];
         setDate(mode === 'copy' ? new Date() : new Date(first.date));
         setSupplierAccount(first.accountId);
-        setNarration(first.narrationId || '');
+        setNarration(first.narrationId || first.narration || '');
         setDescription(first.description || '');
-        if ((first as any).cashPaid !== undefined && (first as any).cashPaid !== null) {
-          setCashPaid(String((first as any).cashPaid));
-          setCashBack(String((first as any).cashBack || 0));
+        setHeaderExpanded(false);
+
+        if (savedPayments && savedPayments.length > 0) {
+          setPayments(
+            savedPayments.map((p) => ({
+              accountId: p.accountId,
+              amount: p.amount,
+              reference: p.reference,
+              checkNum: p.checkNum,
+              checkDate: p.checkDate,
+            }))
+          );
+        } else if (first.cashPaid !== undefined && first.cashPaid !== null) {
+          setLegacyCashPaid(Number(first.cashPaid) || 0);
         }
-        
-        const mappedLines = details.map(d => ({
+
+        const mappedLines: PurchaseLineRequest[] = details.map((d) => ({
           seq: d.seq,
           itemId: d.itemId,
           unit: d.unit || 'Kg',
           qty: d.qty,
           rate: d.rate,
-          addLess: d.addLess,
+          addLess: d.addLess || 0,
           secQty: d.secQty || 0,
           secRate: d.secRate || 0,
           secUnit: d.secUnit || 'Bag',
-          packQty: (d as any).qtyInPack || ((d.qty > 0 && d.secQty && d.secQty > 0) ? round(d.qty / d.secQty, 2) : 0),
-          packing: (d as any).packing || 0
+          packQty:
+            (d as any).qtyInPack ||
+            (d.qty > 0 && d.secQty && d.secQty > 0 ? round(d.qty / d.secQty, 2) : 0),
+          packing: (d as any).packing || (d as any).qtyInPack || 0,
         }));
         setLines(mappedLines);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load purchase details.');
       router.back();
     } finally {
@@ -124,162 +155,161 @@ export function WandaPurchaseScreen() {
     }
   };
 
-  const openSelectModal = (type: 'supplier' | 'narration' | 'item') => {
-    setSelectModalType(type);
-    setSearchQuery('');
-    setSelectModalVisible(true);
+  const resolveWandaPurchaseRates = (
+    item: Item
+  ): { kgRate: number; bagRate: number; packSize: number } => {
+    const pSize = Number(item.qtyInPack || 0);
+    const baseCost = item.lastPurchaseRate ?? item.costRate ?? 0;
+    const bagRate =
+      item.lastPurchaseSecRate ??
+      item.secCostRate ??
+      (pSize > 0 ? round(baseCost * pSize, 2) : 0);
+    const kgRate =
+      baseCost > 0
+        ? baseCost
+        : pSize > 0 && bagRate > 0
+        ? round(bagRate / pSize, 8)
+        : 0;
+    return { kgRate, bagRate, packSize: pSize };
   };
 
-  const handleSelect = (val: string) => {
-    if (selectModalType === 'supplier') {
-      setSupplierAccount(val);
-    } else if (selectModalType === 'narration') {
-      setNarration(val);
-    } else if (selectModalType === 'item') {
-      const selectedItem = items.find(i => i.id === val);
-      let defaultRate = 0;
-      let secRate = 0;
-      let packQty = 0;
-      let packing = 0;
-      if (selectedItem) {
-        const pSize = Number(selectedItem.qtyInPack || (selectedItem as any).QtyInPack || (selectedItem as any).qty_in_pack || 0);
-        packQty = pSize;
-        packing = pSize;
-        secRate = selectedItem.lastPurchaseSecRate ?? (selectedItem.secRate || ((selectedItem.priRate || 0) * (pSize > 0 ? pSize : 1)));
-        defaultRate = selectedItem.lastPurchaseRate ?? ((pSize > 0 && secRate > 0) ? round(secRate / pSize, 8) : (selectedItem.priRate || 0));
+  const handleFastAddItem = (item: Item, addedBagsOrKg: number = 1) => {
+    const { kgRate, bagRate, packSize } = resolveWandaPurchaseRates(item);
+    setLines((prev) => {
+      const existingIdx = prev.findIndex(
+        (l) => String(l.itemId).trim().toLowerCase() === String(item.id).trim().toLowerCase()
+      );
+      if (existingIdx >= 0) {
+        const next = [...prev];
+        const cur = next[existingIdx];
+        const effPack = cur.packQty || cur.packing || packSize || 0;
+        const newBags = round((cur.secQty || 0) + addedBagsOrKg, 2);
+        const newKg =
+          effPack > 0
+            ? round(newBags * effPack, 2)
+            : round((cur.qty || 0) + addedBagsOrKg, 2);
+        next[existingIdx] = {
+          ...cur,
+          secQty: effPack > 0 ? newBags : cur.secQty,
+          qty: newKg,
+        };
+        return next;
       }
-      setCurrentLine(prev => ({
+
+      const maxSeq = prev.reduce((max, l) => Math.max(max, l.seq || 0), 0);
+      const initialBags = packSize > 0 ? addedBagsOrKg : 0;
+      const initialKg = packSize > 0 ? round(initialBags * packSize, 2) : addedBagsOrKg;
+
+      return [
+        {
+          seq: maxSeq + 1,
+          itemId: item.id,
+          unit: item.defaultUnit || item.primaryUnit || 'Kg',
+          qty: initialKg,
+          rate: kgRate,
+          addLess: 0,
+          secUnit: item.secondaryUnit || 'Bag',
+          secQty: initialBags,
+          secRate: bagRate,
+          packQty: packSize,
+          packing: packSize,
+        },
         ...prev,
-        itemId: val,
-        unit: selectedItem?.defaultUnit || selectedItem?.primaryUnit || undefined,
-        rate: defaultRate,
-        addLess: prev.addLess || 0,
-        secUnit: selectedItem?.secondaryUnit || undefined,
-        secRate,
-        secQty: 0,
-        packQty,
-        packing
-      }));
-    }
-    setSelectModalVisible(false);
+      ];
+    });
   };
 
-  const updateCurrentLineField = (field: string, val: string | number) => {
-    setCurrentLine(prev => {
-      const updated = { ...prev };
-      const cleanVal = typeof val === 'string' ? val.replace(/,/g, '') : val;
-      const numVal = (cleanVal !== null && cleanVal !== undefined && cleanVal !== '' && !isNaN(Number(cleanVal))) ? Number(cleanVal) : 0;
+  const updateWandaLineField = (seq: number, field: string, rawVal: string | number) => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.seq !== seq) return line;
+        const updated = { ...line };
+        const numVal =
+          typeof rawVal === 'string'
+            ? parseFloat(rawVal.replace(/,/g, '')) || 0
+            : Number(rawVal) || 0;
 
-      let kgQty = updated.qty || 0;
-      let bagQty = updated.secQty || 0;
-      let packQty = updated.packQty || 0;
-      let packing = updated.packing || 0;
-      let kgRate = updated.rate || 0;
-      let bagRate = updated.secRate || 0;
+        let kgQty = updated.qty || 0;
+        let bagQty = updated.secQty || 0;
+        let packQty = updated.packQty || 0;
+        let packing = updated.packing || 0;
+        let kgRate = updated.rate || 0;
+        let bagRate = updated.secRate || 0;
 
-      if (field === 'qty') {
-        kgQty = numVal;
-        const effectivePack = packQty > 0 ? packQty : (packing > 0 ? packing : 0);
-        bagQty = effectivePack > 0 ? round(kgQty / effectivePack, 2) : 0;
-      } else if (field === 'secQty') {
-        bagQty = numVal;
-        const effectivePack = packQty > 0 ? packQty : (packing > 0 ? packing : 0);
-        kgQty = round(bagQty * effectivePack, 2);
-      } else if (field === 'packQty') {
-        packQty = numVal;
-        bagQty = packQty > 0 ? round(kgQty / packQty, 2) : 0;
-      } else if (field === 'packing') {
-        packing = numVal;
-        if (packing > 0) {
-          if (bagRate > 0) {
-            kgRate = round(bagRate / packing, 8);
-          } else if (kgRate > 0) {
-            bagRate = round(kgRate * packing, 2);
+        if (field === 'qty') {
+          kgQty = numVal;
+          const effPack = packQty > 0 ? packQty : packing > 0 ? packing : 0;
+          bagQty = effPack > 0 ? round(kgQty / effPack, 2) : 0;
+        } else if (field === 'secQty') {
+          bagQty = numVal;
+          const effPack = packQty > 0 ? packQty : packing > 0 ? packing : 0;
+          kgQty = effPack > 0 ? round(bagQty * effPack, 2) : kgQty;
+        } else if (field === 'packQty') {
+          packQty = numVal;
+          bagQty = packQty > 0 ? round(kgQty / packQty, 2) : 0;
+        } else if (field === 'packing') {
+          packing = numVal;
+          if (packing > 0) {
+            if (bagRate > 0) kgRate = round(bagRate / packing, 8);
+            else if (kgRate > 0) bagRate = round(kgRate * packing, 2);
           }
-        }
-      } else if (field === 'rate') {
-        if (updated.rate && round(numVal, 2) === round(updated.rate, 2)) {
-          kgRate = updated.rate;
-        } else {
+        } else if (field === 'rate') {
           kgRate = numVal;
-          if (packing > 0) {
-            bagRate = round(kgRate * packing, 2);
-          }
-        }
-      } else if (field === 'secRate') {
-        if (updated.secRate && round(numVal, 2) === round(updated.secRate, 2)) {
-          bagRate = updated.secRate;
-        } else {
+          if (packing > 0) bagRate = round(kgRate * packing, 2);
+        } else if (field === 'secRate') {
           bagRate = numVal;
-          if (packing > 0) {
-            kgRate = round(bagRate / packing, 8);
-          }
+          if (packing > 0) kgRate = round(bagRate / packing, 8);
+        } else if (field === 'addLess') {
+          updated.addLess = numVal;
         }
-      } else if (field === 'addLess') {
-        updated.addLess = numVal;
-      }
 
-      updated.qty = round(kgQty, 2);
-      updated.secQty = round(bagQty, 2);
-      updated.packQty = round(packQty, 2);
-      updated.packing = round(packing, 2);
-      updated.rate = round(kgRate, 8);
-      updated.secRate = round(bagRate, 2);
-      return updated;
-    });
-  };
-
-  const openLineModal = (line?: PurchaseLineRequest) => {
-    if (line) {
-      setCurrentLine({ ...line });
-    } else {
-      const maxSeq = lines.reduce((max, l) => Math.max(max, l.seq), 0);
-      setCurrentLine({
-        seq: maxSeq + 1,
-        itemId: '',
-        unit: 'Kg',
-        qty: 1,
-        rate: 0,
-        addLess: 0,
-        secQty: 0,
-        secRate: 0,
-        secUnit: 'Bag',
-        packQty: 0,
-        packing: 0
-      });
-    }
-    setLineModalVisible(true);
-  };
-
-  const saveLine = () => {
-    if (!currentLine.itemId || !currentLine.qty || currentLine.qty <= 0) {
-      Alert.alert('Validation Error', 'Item and a valid quantity are required.');
-      return;
-    }
-    
-    setLines(prev => {
-      const exists = prev.findIndex(l => l.seq === currentLine.seq);
-      if (exists >= 0) {
-        const newLines = [...prev];
-        newLines[exists] = currentLine as PurchaseLineRequest;
-        return newLines;
-      }
-      return [...prev, currentLine as PurchaseLineRequest];
-    });
-    setLineModalVisible(false);
+        updated.qty = round(kgQty, 2);
+        updated.secQty = round(bagQty, 2);
+        updated.packQty = round(packQty, 2);
+        updated.packing = round(packing, 2);
+        updated.rate = round(kgRate, 8);
+        updated.secRate = round(bagRate, 2);
+        return updated;
+      })
+    );
   };
 
   const removeLine = async (seq: number) => {
     if (isEdit) {
       try {
         await purchaseService.deleteLine(voucherNo!, seq);
-      } catch (error) {
+      } catch {
         Alert.alert('Error', 'Failed to delete line from database.');
         return;
       }
     }
-    setLines(prev => prev.filter(l => l.seq !== seq));
+    setLines((prev) => prev.filter((l) => l.seq !== seq));
   };
+
+  const totalQty = useMemo(() => lines.reduce((s, l) => s + (l.qty || 0), 0), [lines]);
+  const totalBags = useMemo(() => lines.reduce((s, l) => s + (l.secQty || 0), 0), [lines]);
+  const totalAmount = useMemo(
+    () =>
+      round(
+        lines.reduce((s, l) => s + ((l.qty || 0) * (l.rate || 0) + (l.addLess || 0)), 0),
+        2
+      ),
+    [lines]
+  );
+
+  const totalPaid = useMemo(
+    () => payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+    [payments]
+  );
+  const cashBackAmount = Math.max(0, round(totalPaid - totalAmount, 2));
+
+  const cartQtyMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const l of lines) {
+      map[l.itemId] = round((map[l.itemId] || 0) + (l.secQty || l.qty || 0), 2);
+    }
+    return map;
+  }, [lines]);
 
   const handleSaveVoucher = async () => {
     if (!supplierAccount || !date) {
@@ -293,8 +323,8 @@ export function WandaPurchaseScreen() {
 
     setSaving(true);
     try {
-      const cleanedLines = lines.map((l, idx) => ({
-        seq: l.seq || (idx + 1),
+      const cleanedLines: PurchaseLineRequest[] = lines.map((l, idx) => ({
+        seq: idx + 1,
         itemId: l.itemId,
         unit: l.unit || undefined,
         qty: Number(l.qty) || 0,
@@ -302,30 +332,45 @@ export function WandaPurchaseScreen() {
         addLess: Number(l.addLess) || 0,
         secQty: Number(l.secQty) || 0,
         secRate: Number(l.secRate) || 0,
-        secUnit: (Number(l.secQty) > 0 && l.secUnit) ? l.secUnit : undefined,
-        qtyInPack: (l as any).packQty || (l as any).qtyInPack || null,
-        packing: (l as any).packing || null
+        secUnit: Number(l.secQty) > 0 && l.secUnit ? l.secUnit : undefined,
+        qtyInPack: l.packQty || l.qtyInPack || null,
+        packing: l.packing || null,
       }));
+
+      const validPayments = payments
+        .filter((p) => p.accountId && Number(p.amount) > 0)
+        .map((p, idx) => ({
+          seq: idx + 1,
+          accountId: p.accountId,
+          amount: Number(p.amount),
+          reference: p.reference || undefined,
+          checkNum: p.checkNum || undefined,
+          checkDate: p.checkDate || undefined,
+        }));
 
       const request = {
         date: dayjs(date).format('YYYY-MM-DD'),
         account: supplierAccount,
         narration: narration || undefined,
         description: description || undefined,
-        cashPaid: parseFloat(cashPaid) || 0,
-        cashBack: parseFloat(cashBack) || 0,
-        lines: cleanedLines
+        cashPaid: totalPaid,
+        cashBack: cashBackAmount,
+        lines: cleanedLines,
+        payments: validPayments,
       };
 
       if (isEdit) {
         await purchaseService.update(voucherNo!, request);
-        Alert.alert('Success', 'Purchase updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Purchase updated successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       } else {
         await purchaseService.create(request);
-        Alert.alert('Success', 'Purchase created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
+        Alert.alert('Success', 'Purchase created successfully.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
       }
     } catch (error: any) {
-      console.error('Failed to save purchase:', error?.response?.data || error);
       Alert.alert('Error', extractErrorMessage(error, 'Failed to save purchase.'));
     } finally {
       setSaving(false);
@@ -335,100 +380,39 @@ export function WandaPurchaseScreen() {
   const handleDeleteVoucher = () => {
     Alert.alert('Delete Purchase', 'Are you sure you want to delete this purchase voucher?', [
       { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Delete', 
+      {
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           setSaving(true);
           try {
             await purchaseService.delete(voucherNo!);
-            Alert.alert('Success', 'Purchase deleted.', [{ text: 'OK', onPress: () => router.back() }]);
-          } catch (error) {
+            Alert.alert('Success', 'Purchase deleted.', [
+              { text: 'OK', onPress: () => router.back() },
+            ]);
+          } catch {
             Alert.alert('Error', 'Failed to delete purchase.');
             setSaving(false);
           }
-        }
-      }
+        },
+      },
     ]);
   };
 
-  const handleCopyAsNew = () => {
-    Alert.alert('Copy as New', 'Are you sure you want to duplicate this voucher?', [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Copy', 
-        onPress: () => {
-          setDate(new Date());
-          router.replace({ pathname: '/purchases/[voucherNo]' as any, params: { voucherNo: voucherNo, mode: 'copy' } });
-        } 
-      }
-    ]);
-  };
+  const supplierOptions: InlineSelectOption[] = useMemo(
+    () =>
+      suppliers.map((s) => ({
+        id: s.account,
+        title: s.title,
+        subtitle: `Account: ${s.account}`,
+      })),
+    [suppliers]
+  );
 
-  const totalQty = useMemo(() => {
-    return lines.reduce((sum, l) => sum + (l.qty || 0), 0);
-  }, [lines]);
-
-  const totalBags = useMemo(() => {
-    return lines.reduce((sum, l) => sum + (l.secQty || 0), 0);
-  }, [lines]);
-
-  const totalAmount = useMemo(() => {
-    return lines.reduce((sum, l) => {
-      return sum + round((l.qty || 0) * (l.rate || 0) + (l.addLess || 0), 2);
-    }, 0);
-  }, [lines]);
-
-  const numCashPaid = parseFloat(cashPaid) || 0;
-  const numCashBack = parseFloat(cashBack) || 0;
-  const balance = totalAmount - numCashPaid + numCashBack;
-
-  useEffect(() => {
-    if (!isEdit || mode === 'copy') {
-      const isAutoSynced = !cashPaid || parseFloat(cashPaid) === 0 || parseFloat(cashPaid) === prevTotalRef.current;
-      if (isAutoSynced) {
-        setCashPaid(totalAmount > 0 ? totalAmount.toString() : '');
-        setCashBack('0');
-      } else {
-        const excess = Math.max(0, numCashPaid - totalAmount);
-        setCashBack(excess > 0 ? excess.toFixed(2) : '0');
-      }
-      prevTotalRef.current = totalAmount;
-    } else if (isEdit && !loading) {
-      const excess = Math.max(0, numCashPaid - totalAmount);
-      setCashBack(excess > 0 ? excess.toFixed(2) : '0');
-    }
-  }, [totalAmount, isEdit, mode, loading]);
-
-  const handleCashPaidChange = (text: string) => {
-    setCashPaid(text);
-    const paid = parseFloat(text) || 0;
-    if (paid > totalAmount) {
-      setCashBack((paid - totalAmount).toFixed(2));
-    } else {
-      setCashBack('0');
-    }
-  };
-
-  const filteredModalList = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (selectModalType === 'supplier') {
-      return suppliers.filter(s => 
-        s.title.toLowerCase().includes(q) || s.account.toLowerCase().includes(q)
-      );
-    } else if (selectModalType === 'narration') {
-      return narrations.filter(n => 
-        n.title.toLowerCase().includes(q) || n.code.toLowerCase().includes(q)
-      );
-    } else if (selectModalType === 'item') {
-      return items.filter(i => 
-        i.title.toLowerCase().includes(q) || 
-        (i.itemKey && i.itemKey.toLowerCase().includes(q)) ||
-        (i.barcode && i.barcode.toLowerCase().includes(q))
-      );
-    }
-    return [];
-  }, [selectModalType, searchQuery, suppliers, narrations, items]);
+  const narrationOptions: InlineSelectOption[] = useMemo(
+    () => narrations.map((n) => ({ id: n.code, title: n.title })),
+    [narrations]
+  );
 
   if (loading) {
     return (
@@ -438,797 +422,549 @@ export function WandaPurchaseScreen() {
     );
   }
 
+  const selectedSupplierObj = suppliers.find((s) => s.account === supplierAccount);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
       >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Master Details</Text>
-              {isEdit ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>PR-{String(voucherNo).padStart(5, '0')}</Text>
-                </View>
-              ) : (
-                <View style={[styles.badge, { backgroundColor: '#ecfdf5' }]}>
-                  <Text style={[styles.badgeText, { color: '#059669' }]}>
-                    {mode === 'copy' ? 'Duplicate Purchase' : 'New Purchase'}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+          ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {/* Compact Master Header */}
+          <View style={styles.masterCard}>
+            <TouchableOpacity
+              style={styles.masterSummaryBar}
+              onPress={() => setHeaderExpanded((p) => !p)}
+            >
+              <View style={styles.masterSummaryLeft}>
+                <View style={styles.voucherBadge}>
+                  <Text style={styles.voucherBadgeText}>
+                    {isEdit ? `PR-${String(voucherNo).padStart(5, '0')}` : 'WANDA PURCHASE'}
                   </Text>
                 </View>
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Date *</Text>
-              <TouchableOpacity 
-                style={styles.datePickerBtn}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Ionicons name="calendar-outline" size={20} color={Theme.colors.primary} />
-                <Text style={styles.dateText}>{dayjs(date).format('DD-MMM-YYYY')}</Text>
-              </TouchableOpacity>
-              {showDatePicker && (
-                <DateTimePicker
-                  value={date}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(false);
-                    if (selectedDate) setDate(selectedDate);
-                  }}
-                />
-              )}
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Supplier Account *</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('supplier')}
-              >
-                <Text style={[styles.selectorText, !supplierAccount && { color: Theme.colors.textSecondary }]}>
-                  {supplierAccount ? suppliers.find(s => s.account === supplierAccount)?.title || supplierAccount : 'Select Supplier'}
+                <TouchableOpacity
+                  style={styles.dateChip}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={13} color={Theme.colors.primary} />
+                  <Text style={styles.dateChipText}>{dayjs(date).format('DD MMM YY')}</Text>
+                </TouchableOpacity>
+                <Text style={styles.supplierSummaryTitle} numberOfLines={1}>
+                  {selectedSupplierObj?.title || 'Select Supplier *'}
                 </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Narration</Text>
-              <TouchableOpacity 
-                style={styles.pickerContainer}
-                onPress={() => openSelectModal('narration')}
-              >
-                <Text style={[styles.selectorText, !narration && { color: Theme.colors.textSecondary }]}>
-                  {narration ? narrations.find(n => n.code === narration)?.title || narration : 'Select Narration'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Enter description"
-                placeholderTextColor={Theme.colors.textSecondary}
-                value={description}
-                onChangeText={setDescription}
-              />
-            </View>
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.section}>
-            <View style={styles.rowBetween}>
-              <View>
-                <Text style={styles.sectionTitle}>Line Items</Text>
-                <Text style={styles.sectionSubtitle}>Dual-unit feed purchase</Text>
               </View>
-              <TouchableOpacity style={styles.addBtn} onPress={() => openLineModal()}>
-                <Ionicons name="add" size={16} color={Theme.colors.white} />
-                <Text style={styles.addBtnText}>Add Line</Text>
-              </TouchableOpacity>
+              <Ionicons
+                name={headerExpanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={Theme.colors.textSecondary}
+              />
+            </TouchableOpacity>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={(_, d) => {
+                  setShowDatePicker(false);
+                  if (d) setDate(d);
+                }}
+              />
+            )}
+
+            {headerExpanded && (
+              <View style={styles.masterExpandedBody}>
+                <InlineSearchSelect
+                  label="Supplier Account *"
+                  placeholder="Search Supplier..."
+                  value={supplierAccount}
+                  options={supplierOptions}
+                  onSelect={setSupplierAccount}
+                  compact
+                  rightAccessory={
+                    <TouchableOpacity
+                      style={styles.notesToggleLink}
+                      onPress={() => setNotesExpanded((prev) => !prev)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text
+                        style={[
+                          styles.notesToggleLinkText,
+                          (notesExpanded || Boolean(narration || description)) &&
+                            styles.notesToggleLinkTextActive,
+                        ]}
+                      >
+                        {notesExpanded || Boolean(narration || description)
+                          ? 'Notes / Ref'
+                          : '+ Notes & Narration'}
+                      </Text>
+                      <Ionicons
+                        name={
+                          notesExpanded || Boolean(narration || description)
+                            ? 'chevron-up'
+                            : 'chevron-down'
+                        }
+                        size={14}
+                        color={Theme.colors.primary}
+                      />
+                    </TouchableOpacity>
+                  }
+                />
+
+                {(notesExpanded || Boolean(narration || description)) && (
+                  <View style={styles.rowGap}>
+                    <View style={{ flex: 1 }}>
+                      <InlineSearchSelect
+                        label="Narration"
+                        placeholder="Select narration..."
+                        value={narration}
+                        options={narrationOptions}
+                        onSelect={setNarration}
+                        allowClear
+                        allowCustomText
+                        compact
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.compactLabel}>Notes</Text>
+                      <TextInput
+                        style={styles.compactTextInput}
+                        placeholder="Notes..."
+                        placeholderTextColor={Theme.colors.textSecondary}
+                        value={description}
+                        onChangeText={setDescription}
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          <FastItemEntryBar
+            items={items}
+            mode={entryMode}
+            onModeChange={setEntryMode}
+            onAddItem={(itm, q) => handleFastAddItem(itm, q)}
+            resolveItemRate={(itm) => resolveWandaPurchaseRates(itm).bagRate}
+            cartQtyMap={cartQtyMap}
+            placeholder="Scan or search feed item..."
+          />
+
+          <View style={styles.linesSection}>
+            <View style={styles.linesHeaderRow}>
+              <Text style={styles.linesSectionTitle}>
+                Feed Purchase Lines ({lines.length})
+              </Text>
+              {lines.length > 0 && (
+                <Text style={styles.linesTotalBadge}>
+                  Bags: {totalBags} • Kg: {totalQty} • Rs. {totalAmount.toLocaleString()}
+                </Text>
+              )}
             </View>
 
             {lines.length === 0 ? (
-              <Text style={styles.emptyLinesText}>No lines added yet.</Text>
+              <View style={styles.emptyCartBox}>
+                <Ionicons name="cube-outline" size={32} color={Theme.colors.border} />
+                <Text style={styles.emptyCartText}>
+                  Search or tap a feed product above to add inline.
+                </Text>
+              </View>
             ) : (
               lines.map((line) => {
-                const itemTitle = items.find(i => i.id === line.itemId)?.title || line.itemId;
-                const lineTotal = round(line.qty * line.rate + line.addLess, 2);
+                const itemObj = items.find((i) => String(i.id) === String(line.itemId));
+                const lineTotal = round(
+                  (line.qty || 0) * (line.rate || 0) + (line.addLess || 0),
+                  2
+                );
+
                 return (
                   <View key={line.seq} style={styles.lineCard}>
-                    <View style={styles.lineInfo}>
-                      <Text style={styles.lineAccount} numberOfLines={1}>{itemTitle}</Text>
-                      <Text style={styles.lineAmount}>Rs. {lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-                      <Text style={styles.lineDetail}>
-                        {line.qty} Kg ({line.secQty || 0} Bags) @ Rs. {Number(line.rate || 0).toFixed(2)}/Kg | Bag Rate: Rs. {Number(line.secRate || 0).toFixed(2)}
-                        {(line as any).packQty ? ` | Pack: ${(line as any).packQty}` : ''}
-                        {line.addLess !== 0 ? ` | Add/Less: Rs. ${line.addLess.toLocaleString()}` : ''}
+                    <View style={styles.lineTopRow}>
+                      <Text style={styles.lineItemTitle} numberOfLines={1}>
+                        {itemObj?.title || `Item #${line.itemId}`}
                       </Text>
+                      <View style={styles.lineTopIcons}>
+                        <Text style={styles.lineAmountBadge}>
+                          Rs. {lineTotal.toLocaleString()}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => removeLine(line.seq)}
+                          style={{ padding: 4 }}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={16}
+                            color={Theme.colors.danger}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <View style={styles.lineActions}>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => openLineModal(line)}>
-                        <Ionicons name="pencil" size={20} color={Theme.colors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => removeLine(line.seq)}>
-                        <Ionicons name="trash" size={20} color={Theme.colors.danger} />
-                      </TouchableOpacity>
+
+                    <View style={styles.wandaGridRow}>
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Bags</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.secQty ? String(line.secQty) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'secQty', v)}
+                        />
+                      </View>
+
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Pack (Kg)</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.packQty ? String(line.packQty) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'packQty', v)}
+                        />
+                      </View>
+
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Qty (Kg)</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.qty ? String(line.qty) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'qty', v)}
+                        />
+                      </View>
+
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Bag Rate</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.secRate ? String(round(line.secRate, 2)) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'secRate', v)}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={[styles.wandaGridRow, { marginTop: 6 }]}>
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Rate/Kg</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.rate ? String(round(line.rate, 2)) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'rate', v)}
+                        />
+                      </View>
+
+                      <View style={styles.wandaField}>
+                        <Text style={styles.miniLabel}>Packing</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.packing ? String(line.packing) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'packing', v)}
+                        />
+                      </View>
+
+                      <View style={[styles.wandaField, { flex: 2 }]}>
+                        <Text style={styles.miniLabel}>Add / Less (Rs.)</Text>
+                        <TextInput
+                          style={styles.wandaInput}
+                          keyboardType="numeric"
+                          selectTextOnFocus
+                          value={line.addLess ? String(line.addLess) : ''}
+                          placeholder="0"
+                          onChangeText={(v) => updateWandaLineField(line.seq, 'addLess', v)}
+                        />
+                      </View>
                     </View>
                   </View>
                 );
               })
             )}
-            
-            {lines.length > 0 && (
-              <View style={styles.subtotalsBar}>
-                <View style={styles.subtotalCol}>
-                  <Text style={styles.subtotalLabel}>Total Qty (Kg)</Text>
-                  <Text style={styles.subtotalValue}>{totalQty.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</Text>
-                </View>
-                <View style={styles.subtotalCol}>
-                  <Text style={styles.subtotalLabel}>Total Bags</Text>
-                  <Text style={styles.subtotalValue}>{totalBags.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</Text>
-                </View>
-                <View style={styles.subtotalCol}>
-                  <Text style={styles.subtotalLabel}>Total Amount</Text>
-                  <Text style={styles.subtotalValue}>Rs. {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</Text>
-                </View>
-              </View>
-            )}
+          </View>
 
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Amount</Text>
-              <Text style={styles.totalValue}>Rs. {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
-            </View>
-          </Animated.View>
-
-          {/* Cash Payment Details Section */}
-          <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Details</Text>
-
-            <View style={[styles.row, { marginTop: Theme.spacing.sm }]}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                <Text style={styles.label}>Cash Paid</Text>
-                <TextInput
-                  style={styles.textInput}
-                  keyboardType="numeric"
-                  placeholder="0.00"
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={cashPaid}
-                  onChangeText={handleCashPaidChange}
-                />
-              </View>
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Cash Back</Text>
-                <TextInput
-                  style={styles.textInput}
-                  keyboardType="numeric"
-                  placeholder="0.00"
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={cashBack}
-                  onChangeText={setCashBack}
-                />
-              </View>
-            </View>
-
-            <View style={styles.balanceContainer}>
-              <View>
-                <Text style={styles.balanceLabel}>NET BALANCE</Text>
-                <View style={[
-                  styles.statusBadge, 
-                  balance === 0 ? styles.badgeSettled : balance > 0 ? styles.badgePayable : styles.badgeChange
-                ]}>
-                  <Text style={[
-                    styles.statusBadgeText,
-                    balance === 0 ? styles.textSettled : balance > 0 ? styles.textPayable : styles.textChange
-                  ]}>
-                    {balance === 0 ? 'SETTLED' : balance > 0 ? 'PAYABLE' : 'CHANGE'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={[
-                styles.balanceAmount,
-                balance > 0 ? styles.amountPayable : styles.amountSettled
-              ]}>
-                Rs. {Math.abs(balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </Text>
-            </View>
-          </Animated.View>
-
+          <MobileMultiPaymentSection
+            mode="purchase"
+            netTotal={totalAmount}
+            payments={payments}
+            onChange={setPayments}
+            legacyCashAmount={legacyCashPaid}
+          />
         </ScrollView>
 
         <View style={styles.footer}>
           {isEdit && (
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteVoucher} disabled={saving}>
-              <Ionicons name="trash-outline" size={24} color={Theme.colors.danger} />
+            <TouchableOpacity
+              style={styles.iconFooterBtn}
+              onPress={handleDeleteVoucher}
+              disabled={saving}
+            >
+              <Ionicons name="trash-outline" size={20} color={Theme.colors.danger} />
             </TouchableOpacity>
           )}
-          {(isEdit || mode === 'copy') && (
-            <TouchableOpacity style={styles.copyBtn} onPress={handleCopyAsNew} disabled={saving || mode === 'copy'}>
-              <Ionicons name="copy-outline" size={24} color={Theme.colors.primary} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={[styles.saveBtn, { flex: 1 }]} onPress={handleSaveVoucher} disabled={saving}>
-            {saving ? <ActivityIndicator color={Theme.colors.white} /> : (
+          <TouchableOpacity
+            style={styles.saveBtn}
+            onPress={handleSaveVoucher}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
               <>
-                <Ionicons name="save-outline" size={20} color={Theme.colors.white} style={{ marginRight: 8 }} />
-                <Text style={styles.saveBtnText}>Save Purchase</Text>
+                <Ionicons name="save-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.saveBtnText}>
+                  {isEdit ? 'Update Purchase' : 'Save Purchase'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
-
-        {/* Line Item Modal */}
-        <Modal visible={lineModalVisible} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{currentLine.itemId ? 'Edit Line' : 'Add Line'}</Text>
-                <TouchableOpacity onPress={() => setLineModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Product Item *</Text>
-                  <TouchableOpacity 
-                    style={styles.pickerContainer}
-                    onPress={() => openSelectModal('item')}
-                  >
-                    <Text style={[styles.selectorText, !currentLine.itemId && { color: Theme.colors.textSecondary }]}>
-                      {currentLine.itemId ? items.find(i => i.id === currentLine.itemId)?.title || currentLine.itemId : 'Select Product Item'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={Theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Qty (Kg) and Bags */}
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Qty (Kg) *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.qty !== undefined ? String(currentLine.qty) : '1'}
-                      onChangeText={(val) => updateCurrentLineField('qty', val)}
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Bags</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.secQty !== undefined ? String(currentLine.secQty) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('secQty', val)}
-                    />
-                  </View>
-                </View>
-
-                {/* Pack Qty and Packing */}
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Pack Qty (Bag Size)</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.packQty !== undefined ? String(currentLine.packQty) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('packQty', val)}
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Packing</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.packing !== undefined ? String(currentLine.packing) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('packing', val)}
-                    />
-                  </View>
-                </View>
-
-                {/* Rates */}
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                    <Text style={styles.label}>Rate (Rs./Kg) *</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.rate !== undefined ? String(round(currentLine.rate, 2)) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('rate', val)}
-                    />
-                  </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Bag Rate (Rs./Bag)</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      keyboardType="numeric"
-                      value={currentLine.secRate !== undefined ? String(round(currentLine.secRate, 2)) : '0'}
-                      onChangeText={(val) => updateCurrentLineField('secRate', val)}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Add / Less (Rs.)</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    keyboardType="numeric"
-                    value={currentLine.addLess !== undefined ? String(currentLine.addLess) : '0'}
-                    onChangeText={(val) => updateCurrentLineField('addLess', val)}
-                  />
-                </View>
-
-                {/* Line Amount Preview */}
-                <View style={styles.linePreviewBox}>
-                  <Text style={styles.linePreviewLabel}>Line Amount</Text>
-                  <Text style={styles.linePreviewAmount}>
-                    Rs. {(
-                      (currentLine.qty || 0) * (currentLine.rate || 0) + (currentLine.addLess || 0)
-                    ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-
-                <TouchableOpacity style={styles.modalSaveBtn} onPress={saveLine}>
-                  <Text style={styles.modalSaveBtnText}>Save Line</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Selection Search Modal */}
-        <Modal visible={selectModalVisible} animationType="fade" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  {selectModalType === 'supplier' && 'Select Supplier'}
-                  {selectModalType === 'narration' && 'Select Narration'}
-                  {selectModalType === 'item' && 'Select Product Item'}
-                </Text>
-                <TouchableOpacity onPress={() => setSelectModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={Theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Type to filter..."
-                  placeholderTextColor={Theme.colors.textSecondary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoFocus
-                />
-              </View>
-
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {filteredModalList.map((item: any, idx: number) => {
-                  let val = '';
-                  let title = '';
-                  let subtitle = '';
-
-                  if (selectModalType === 'supplier') {
-                    val = item.account;
-                    title = item.title;
-                    subtitle = `Account: ${item.account}`;
-                  } else if (selectModalType === 'narration') {
-                    val = item.code;
-                    title = item.title;
-                  } else if (selectModalType === 'item') {
-                    val = item.id;
-                    title = item.title;
-                    subtitle = `Rate: Rs. ${item.priRate || 0}${item.barcode ? ` | Barcode: ${item.barcode}` : ''}`;
-                  }
-
-                  return (
-                    <TouchableOpacity 
-                      key={idx}
-                      style={styles.modalListItem}
-                      onPress={() => handleSelect(val)}
-                    >
-                      <Text style={styles.modalListItemText}>{title}</Text>
-                      {!!subtitle && <Text style={styles.modalListItemSub}>{subtitle}</Text>}
-                    </TouchableOpacity>
-                  );
-                })}
-                {filteredModalList.length === 0 && (
-                  <Text style={styles.emptyLinesText}>No matching records found.</Text>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: Theme.spacing.md,
-    paddingBottom: 40,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  section: {
-    backgroundColor: Theme.colors.white,
-    borderRadius: Theme.radii.lg,
-    padding: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+  safeArea: { flex: 1, backgroundColor: Theme.colors.background },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  content: { padding: 12, paddingBottom: 32 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  masterCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    marginBottom: 10,
     ...Theme.shadows.sm,
   },
-  rowBetween: {
+  masterSummaryBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Theme.spacing.sm,
+    justifyContent: 'space-between',
   },
-  sectionTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
+  masterSummaryLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 6,
   },
-  sectionSubtitle: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
+  voucherBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  badge: {
-    backgroundColor: '#eff6ff',
+  voucherBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  dateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: Theme.radii.sm,
+    borderRadius: 6,
   },
-  badgeText: {
-    ...Theme.typography.caption,
-    color: Theme.colors.primary,
-    fontWeight: '700',
-  },
-  inputGroup: {
-    marginBottom: Theme.spacing.sm,
-  },
-  row: {
-    flexDirection: 'row',
-  },
-  label: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginBottom: 4,
-  },
-  datePickerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 10,
-  },
-  dateText: {
-    ...Theme.typography.body,
-    marginLeft: Theme.spacing.sm,
-    color: Theme.colors.text,
-  },
-  pickerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 12,
-  },
-  selectorText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: 10,
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: Theme.radii.sm,
-  },
-  addBtnText: {
-    ...Theme.typography.caption,
-    color: Theme.colors.white,
-    marginLeft: 4,
+  dateChipText: {
+    fontSize: 11.5,
     fontWeight: '600',
-  },
-  emptyLinesText: {
-    ...Theme.typography.body,
-    color: Theme.colors.textSecondary,
-    textAlign: 'center',
-    marginVertical: Theme.spacing.md,
-  },
-  lineCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radii.md,
-    marginBottom: Theme.spacing.sm,
-  },
-  lineInfo: {
-    flex: 1,
-    marginRight: Theme.spacing.sm,
-  },
-  lineAccount: {
-    ...Theme.typography.bodyMedium,
     color: Theme.colors.text,
-    fontWeight: '600',
   },
-  lineAmount: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.primary,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  lineDetail: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  lineActions: {
-    flexDirection: 'row',
-  },
-  actionBtn: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  subtotalsBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
-    padding: Theme.spacing.sm,
-    marginTop: Theme.spacing.xs,
-  },
-  subtotalCol: {
-    alignItems: 'center',
-  },
-  subtotalLabel: {
-    ...Theme.typography.caption,
-    fontSize: 11,
-    color: Theme.colors.textSecondary,
-  },
-  subtotalValue: {
-    ...Theme.typography.caption,
+  supplierSummaryTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: Theme.colors.text,
-    marginTop: 2,
+    flex: 1,
   },
-  totalRow: {
+  masterExpandedBody: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
+  },
+  notesToggleLink: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: Theme.colors.border,
-    paddingTop: Theme.spacing.md,
-    marginTop: Theme.spacing.sm,
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
   },
-  totalLabel: {
-    ...Theme.typography.h3,
+  notesToggleLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.colors.primary,
+  },
+  notesToggleLinkTextActive: {
+    fontWeight: '700',
+  },
+  rowGap: { flexDirection: 'row', gap: 8 },
+  compactLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: 4,
+  },
+  compactTextInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    height: 34,
+    fontSize: 13,
     color: Theme.colors.text,
   },
-  totalValue: {
-    ...Theme.typography.h2,
-    color: Theme.colors.primary,
+  linesSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    ...Theme.shadows.sm,
+  },
+  linesHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  linesSectionTitle: {
+    fontSize: 14,
     fontWeight: '700',
+    color: Theme.colors.text,
+  },
+  linesTotalBadge: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  emptyCartBox: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 6,
+  },
+  emptyCartText: {
+    fontSize: 12.5,
+    color: Theme.colors.textSecondary,
+  },
+  lineCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 9,
+    marginBottom: 8,
+  },
+  lineTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 7,
+  },
+  lineItemTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Theme.colors.text,
+    flex: 1,
+    marginRight: 8,
+  },
+  lineTopIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lineAmountBadge: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.colors.primary,
+  },
+  wandaGridRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  wandaField: {
+    flex: 1,
+  },
+  miniLabel: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: Theme.colors.textSecondary,
+    marginBottom: 2,
+  },
+  wandaInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 7,
+    paddingHorizontal: 7,
+    height: 33,
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Theme.colors.text,
   },
   footer: {
     flexDirection: 'row',
-    padding: Theme.spacing.md,
-    backgroundColor: Theme.colors.white,
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: Theme.colors.border,
   },
-  deleteBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Theme.radii.md,
+  iconFooterBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: Theme.colors.danger,
-    justifyContent: 'center',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
-    marginRight: Theme.spacing.sm,
-  },
-  copyBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Theme.radii.md,
-    borderWidth: 1,
-    borderColor: Theme.colors.primary,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Theme.spacing.sm,
   },
   saveBtn: {
-    backgroundColor: Theme.colors.primary,
-    height: 48,
-    borderRadius: Theme.radii.md,
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: Theme.colors.primary,
   },
   saveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
+    fontSize: 14,
     fontWeight: '700',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Theme.colors.white,
-    borderTopLeftRadius: Theme.radii.xl,
-    borderTopRightRadius: Theme.radii.xl,
-    padding: Theme.spacing.md,
-    maxHeight: '85%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Theme.spacing.md,
-  },
-  modalTitle: {
-    ...Theme.typography.h3,
-    color: Theme.colors.text,
-  },
-  modalBody: {
-    marginBottom: Theme.spacing.lg,
-  },
-  linePreviewBox: {
-    backgroundColor: '#eff6ff',
-    padding: Theme.spacing.md,
-    borderRadius: Theme.radii.md,
-    marginTop: Theme.spacing.sm,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  linePreviewLabel: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.primary,
-    fontWeight: '600',
-  },
-  linePreviewAmount: {
-    ...Theme.typography.h3,
-    color: Theme.colors.primary,
-    fontWeight: '700',
-  },
-  modalSaveBtn: {
-    backgroundColor: Theme.colors.primary,
-    borderRadius: Theme.radii.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: Theme.spacing.md,
-  },
-  modalSaveBtnText: {
-    ...Theme.typography.bodyMedium,
-    color: Theme.colors.white,
-    fontWeight: '700',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
-    paddingHorizontal: Theme.spacing.sm,
-    marginBottom: Theme.spacing.md,
-  },
-  searchIcon: {
-    marginRight: 6,
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  modalListItem: {
-    paddingVertical: Theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.background,
-  },
-  modalListItemText: {
-    ...Theme.typography.body,
-    color: Theme.colors.text,
-  },
-  modalListItemSub: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  balanceContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.background,
-    borderRadius: Theme.radii.md,
-    padding: Theme.spacing.md,
-    marginTop: Theme.spacing.md,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-  },
-  balanceLabel: {
-    ...Theme.typography.caption,
-    color: Theme.colors.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Theme.radii.sm,
-    alignSelf: 'flex-start',
-  },
-  badgeSettled: {
-    backgroundColor: 'rgba(72, 187, 120, 0.15)',
-  },
-  badgePayable: {
-    backgroundColor: 'rgba(236, 201, 75, 0.2)',
-  },
-  badgeChange: {
-    backgroundColor: 'rgba(108, 99, 255, 0.15)',
-  },
-  statusBadgeText: {
-    ...Theme.typography.small,
-    fontWeight: '700',
-  },
-  textSettled: {
-    color: Theme.colors.success,
-  },
-  textPayable: {
-    color: '#D69E2E',
-  },
-  textChange: {
-    color: Theme.colors.primary,
-  },
-  balanceAmount: {
-    ...Theme.typography.h2,
-    fontWeight: '700',
-  },
-  amountPayable: {
-    color: Theme.colors.danger,
-  },
-  amountSettled: {
-    color: Theme.colors.success,
+    color: '#FFFFFF',
   },
 });

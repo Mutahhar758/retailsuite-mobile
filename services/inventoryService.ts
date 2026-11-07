@@ -1,5 +1,13 @@
 import api from './api';
 
+export interface ItemCustomerCategoryPriceDto {
+  itemId: string;
+  customerCategoryId: string;
+  customerCategoryTitle?: string;
+  priRate: number;
+  secRate: number;
+}
+
 export interface Item {
   id: string;
   barcode?: string;
@@ -9,6 +17,8 @@ export interface Item {
   itemKey?: string;
   lastPurchaseRate?: number | null;
   lastPurchaseSecRate?: number | null;
+  costRate?: number | null;
+  secCostRate?: number | null;
   priRate: number;
   secRate: number;
   primaryUnit?: string;
@@ -27,6 +37,12 @@ export interface Item {
   itemType?: string;
   mediaId?: string;
   mediaUrl?: string;
+  quickQtyPresets?: string | null;
+  additionalUnits?: string | null;
+  brandId?: string | null;
+  brandTitle?: string | null;
+  requireImei?: boolean;
+  customerCategoryPrices?: ItemCustomerCategoryPriceDto[];
 }
 
 export interface InventoryItemUpsertRequest {
@@ -37,6 +53,8 @@ export interface InventoryItemUpsertRequest {
   itemKey?: string;
   lastPurchaseRate?: number | null;
   lastPurchaseSecRate?: number | null;
+  costRate?: number | null;
+  secCostRate?: number | null;
   priRate: number;
   secRate: number;
   primaryUnit: string;
@@ -51,12 +69,20 @@ export interface InventoryItemUpsertRequest {
   opnRate?: number;
   itemType?: string;
   mediaId?: string;
+  quickQtyPresets?: string | null;
+  additionalUnits?: string | null;
+  brandId?: string | null;
+  requireImei?: boolean;
+  customerCategoryPrices?: ItemCustomerCategoryPriceDto[];
 }
 
 export interface Unit {
   code: string;
   title: string;
   shortTitle?: string | null;
+  parentUnitId?: string | null;
+  parentUnitTitle?: string | null;
+  conversionRatio?: number | null;
 }
 
 export const inventoryService = {
@@ -103,5 +129,22 @@ export const inventoryService = {
   async getPresignedUploadUrl(fileName: string) {
     const response = await api.post('/api/inventory/items/presigned-upload-url', null, { params: { fileName } });
     return response.data.body as { fileId: string; uploadUrl: string; expiresAt: string };
+  },
+
+  async getCustomerCategoryPrices(customerCategoryId?: string) {
+    const response = await api.get('/api/inventory/customer-category-prices', {
+      params: customerCategoryId ? { customerCategoryId } : undefined
+    });
+    return (response.data.body || []) as ItemCustomerCategoryPriceDto[];
+  },
+
+  async getItemCategoryPrices(itemId: string) {
+    const response = await api.get(`/api/inventory/items/${encodeURIComponent(itemId)}/customer-category-prices`);
+    return (response.data.body || []) as ItemCustomerCategoryPriceDto[];
+  },
+
+  async saveItemCategoryPrices(itemId: string, prices: ItemCustomerCategoryPriceDto[]) {
+    const response = await api.put(`/api/inventory/items/${encodeURIComponent(itemId)}/customer-category-prices`, prices);
+    return response.data.body as string;
   }
 };
