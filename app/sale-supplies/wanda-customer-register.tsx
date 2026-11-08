@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { KeyboardAwareContainer } from '../../components/ui/KeyboardAwareContainer';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform
@@ -688,7 +689,7 @@ export default function WandaCustomerRegister() {
       )}
 
       {/* Main List */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAwareContainer behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         {loading ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={Theme.colors.primary} />
@@ -715,7 +716,7 @@ export default function WandaCustomerRegister() {
             }
           />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
 
       {/* Bottom Sticky Summary Footer Bar */}
       {selectedCustomerId && (

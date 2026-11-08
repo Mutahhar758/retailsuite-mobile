@@ -40,7 +40,9 @@ export function getEffectiveSubUnits(
         return parsed
           .filter(x => x && Number(x.factor) > 1)
           .map(x => {
-            const matched = allUnits.find(u => u.code === x.unitId);
+            const matched = allUnits.find(u =>
+              String(u.code).trim().toLowerCase() === String(x.unitId || '').trim().toLowerCase()
+            );
             return {
               unitId: String(x.unitId || ''),
               unitTitle: x.unitTitle || matched?.title || String(x.unitId || ''),
@@ -56,8 +58,13 @@ export function getEffectiveSubUnits(
 
   if (!item.primaryUnit) return [];
 
+  const priNorm = String(item.primaryUnit).trim().toLowerCase();
   return allUnits
-    .filter(u => u.parentUnitId === item.primaryUnit && u.conversionRatio && Number(u.conversionRatio) > 1)
+    .filter(u =>
+      String(u.parentUnitId || '').trim().toLowerCase() === priNorm &&
+      u.conversionRatio &&
+      Number(u.conversionRatio) > 1
+    )
     .map(u => ({
       unitId: u.code,
       unitTitle: u.title,
@@ -76,7 +83,8 @@ export function getSelectablePrimaryUnits(
 ): SelectableUnitOption[] {
   if (!item?.primaryUnit) return [];
 
-  const primaryUnitObj = allUnits.find(u => u.code === item.primaryUnit);
+  const priNorm = String(item.primaryUnit).trim().toLowerCase();
+  const primaryUnitObj = allUnits.find(u => String(u.code).trim().toLowerCase() === priNorm);
   const primaryShort = getUnitShortLabel(primaryUnitObj, item.primaryUnitTitle || item.primaryUnit);
 
   const baseOption: SelectableUnitOption = {
@@ -114,23 +122,21 @@ export function toBasePrimaryQty(enteredQty: number, factor = 1): number {
 
 /**
  * Given a saved base Primary Unit quantity (e.g. 0.050, 0.250, 1.250, or 2.000),
- * converts any fractional quantity (`qty % 1 !== 0`) into the item's sub-unit (e.g. 50 g, 250 g, 1250 g)
- * while keeping whole numbers (2.000) in the Primary Unit (2 kg).
+ * converts into the item's sub-unit (e.g. 50 g, 250 g, 1250 g) if saved as sub-unit or fractional.
  */
 export function resolveDisplayQtyAndUnit(
   baseQty: number,
   item?: Pick<Item, 'primaryUnit' | 'primaryUnitTitle' | 'additionalUnits'> | null,
   allUnits: Unit[] = [],
-  fallbackUnitTitle = ''
+  savedUnitIdOrTitle = ''
 ): { displayQty: number; unitId: string; selectedUnitId: string; unitLabel: string; factor: number; isSubUnit: boolean } {
   const num = Number(baseQty) || 0;
   const selectable = getSelectablePrimaryUnits(item, allUnits);
   const primaryOpt = selectable[0];
   const defaultUnitId = primaryOpt?.unitId || item?.primaryUnit || '';
-  const defaultLabel = primaryOpt?.shortLabel || fallbackUnitTitle || item?.primaryUnitTitle || '';
+  const defaultLabel = primaryOpt?.shortLabel || savedUnitIdOrTitle || item?.primaryUnitTitle || '';
 
-  // Whole integer quantities stay in the primary unit
-  if (num === 0 || Math.abs(num % 1) < 1e-6 || selectable.length <= 1) {
+  if (selectable.length <= 1) {
     return {
       displayQty: Number(num.toFixed(4)),
       unitId: defaultUnitId,
@@ -142,21 +148,56 @@ export function resolveDisplayQtyAndUnit(
   }
 
   const subOptions = selectable.slice(1);
-  // Prefer a sub-unit whose converted value is a clean integer (e.g. 0.050 * 1000 = 50, 1.250 * 1000 = 1250)
-  const cleanMatch =
-    subOptions.find(sub => {
-      const candidate = num * sub.factor;
-      return Math.abs(candidate - Math.round(candidate)) < 0.001;
-    }) || subOptions[0];
+  const savedNorm = savedUnitIdOrTitle ? String(savedUnitIdOrTitle).trim().toLowerCase() : '';
 
-  const converted = Number((num * cleanMatch.factor).toFixed(4));
+  // 1. If savedUnit explicitly matches a sub-unit, respect it (even if whole integer)
+  if (savedNorm) {
+    const explicitSubMatch = subOptions.find(sub =>
+      String(sub.unitId).trim().toLowerCase() === savedNorm ||
+      String(sub.label).trim().toLowerCase() === savedNorm ||
+      String(sub.shortLabel).trim().toLowerCase() === savedNorm
+    );
+    if (explicitSubMatch) {
+      const converted = Number((num * explicitSubMatch.factor).toFixed(4));
+      return {
+        displayQty: Math.abs(converted - Math.round(converted)) < 0.001 ? Math.round(converted) : converted,
+        unitId: explicitSubMatch.unitId,
+        selectedUnitId: explicitSubMatch.unitId,
+        unitLabel: explicitSubMatch.shortLabel,
+        factor: explicitSubMatch.factor,
+        isSubUnit: true,
+      };
+    }
+  }
+
+  // 2. If it's a fractional base quantity (e.g. 0.050 kg, 0.250 kg, 1.250 kg), resolve to sub-unit
+  const isFractional = num > 0 && Math.abs(num % 1) >= 1e-5;
+  if (isFractional) {
+    const cleanMatch =
+      subOptions.find(sub => {
+        const candidate = num * sub.factor;
+        return Math.abs(candidate - Math.round(candidate)) < 0.001;
+      }) || subOptions[0];
+
+    const converted = Number((num * cleanMatch.factor).toFixed(4));
+    return {
+      displayQty: Math.abs(converted - Math.round(converted)) < 0.001 ? Math.round(converted) : converted,
+      unitId: cleanMatch.unitId,
+      selectedUnitId: cleanMatch.unitId,
+      unitLabel: cleanMatch.shortLabel,
+      factor: cleanMatch.factor,
+      isSubUnit: true,
+    };
+  }
+
+  // 3. Whole numbers stay in primary unit by default
   return {
-    displayQty: Math.abs(converted - Math.round(converted)) < 0.001 ? Math.round(converted) : converted,
-    unitId: cleanMatch.unitId,
-    selectedUnitId: cleanMatch.unitId,
-    unitLabel: cleanMatch.shortLabel,
-    factor: cleanMatch.factor,
-    isSubUnit: true,
+    displayQty: Number(num.toFixed(4)),
+    unitId: defaultUnitId,
+    selectedUnitId: defaultUnitId,
+    unitLabel: defaultLabel,
+    factor: 1,
+    isSubUnit: false,
   };
 }
 

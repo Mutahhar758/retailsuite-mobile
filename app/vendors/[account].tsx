@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { KeyboardAwareContainer } from '../../components/ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -181,7 +182,7 @@ export default function VendorFormScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAwareContainer 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
       >
@@ -394,7 +395,7 @@ export default function VendorFormScreen() {
           </TouchableOpacity>
         </View>
 
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
     </SafeAreaView>
   );
 }

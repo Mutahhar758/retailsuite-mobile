@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { KeyboardAwareContainer } from '../../components/ui/KeyboardAwareContainer';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform
@@ -46,6 +47,15 @@ export default function NormalCustomerRegister() {
   const [filterCollapsed, setFilterCollapsed] = useState(false);
 
   const [lines, setLines] = useState<EditableLine[]>([]);
+
+  const showSecQty = useMemo(
+    () =>
+      Boolean(
+        hasSecondaryQty ||
+        lines.some((l) => Number(l.secQty || 0) > 0 || Boolean(l.secUnit))
+      ),
+    [hasSecondaryQty, lines]
+  );
 
   // Inline Quick Add State
   const [quickAddExpanded, setQuickAddExpanded] = useState(false);
@@ -407,7 +417,7 @@ export default function NormalCustomerRegister() {
               selectTextOnFocus
             />
           </View>
-          {hasSecondaryQty && (
+          {showSecQty && (
             <View style={styles.inlineFieldCol}>
               <Text style={styles.inlineFieldLabel}>SecQty</Text>
               <TextInput
@@ -595,7 +605,7 @@ export default function NormalCustomerRegister() {
       )}
 
       {/* Main List */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAwareContainer behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         {loading ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={Theme.colors.primary} />
@@ -622,7 +632,7 @@ export default function NormalCustomerRegister() {
             }
           />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
 
       {/* Bottom Sticky Summary Footer Bar */}
       {selectedCustomerId && (

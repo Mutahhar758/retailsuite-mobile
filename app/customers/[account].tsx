@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { KeyboardAwareContainer } from '../../components/ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -332,7 +333,7 @@ export default function CustomerFormScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
+      <KeyboardAwareContainer
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
@@ -341,7 +342,7 @@ export default function CustomerFormScreen() {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+            { paddingBottom: isKeyboardVisible ? 24 : 40 },
           ]}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardShouldPersistTaps="handled"
@@ -711,7 +712,7 @@ export default function CustomerFormScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
     </SafeAreaView>
   );
 }

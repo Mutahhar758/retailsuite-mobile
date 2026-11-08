@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { KeyboardAwareContainer } from '../ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -66,11 +67,27 @@ export function NormalSaleSupplyScreen() {
   const [description, setDescription] = useState('');
   const [supplyOrderId, setSupplyOrderId] = useState<number | null>(null);
 
+  // Master Item & Secondary Qty Visibility
+  const selectedMasterItem = useMemo(
+    () => items.find((i) => String(i.id).trim().toLowerCase() === String(itemId).trim().toLowerCase()),
+    [items, itemId]
+  );
+
   // Lines State
   const [lines, setLines] = useState<SaleSupplyLineRequest[]>([
     { seq: 1, customerId: '', unit: '', qty: 1, rate: 0, discount: 0, addLess: 0, secQty: 0, secRate: 0 }
   ]);
   const [lineSearchQuery, setLineSearchQuery] = useState('');
+
+  const showPackQty = useMemo(
+    () =>
+      Boolean(
+        hasSecondaryQty ||
+        selectedMasterItem?.secondaryUnit ||
+        lines.some((l) => Number(l.secQty || 0) > 0 || Boolean(l.secUnit))
+      ),
+    [hasSecondaryQty, selectedMasterItem, lines]
+  );
 
   // AI Sheet Scan & Attachments
   const [scanModalVisible, setScanModalVisible] = useState(false);
@@ -674,8 +691,6 @@ export function NormalSaleSupplyScreen() {
     });
   }, [lines, lineSearchQuery, customers]);
 
-  const selectedMasterItem = items.find(i => i.id === itemId);
-
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -708,14 +723,14 @@ export function NormalSaleSupplyScreen() {
         }}
       />
 
-      <KeyboardAvoidingView 
+      <KeyboardAwareContainer 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={{ flex: 1 }}
       >
         <ScrollView
           style={styles.content}
-          contentContainerStyle={{ paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 }}
+          contentContainerStyle={{ paddingBottom: isKeyboardVisible ? 24 : 40 }}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -966,7 +981,7 @@ export function NormalSaleSupplyScreen() {
 
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
-                    <Text style={styles.label}>{hasSecondaryQty ? 'Single Qty' : 'Qty *'}</Text>
+                    <Text style={styles.label}>{showPackQty ? 'Single Qty' : 'Qty *'}</Text>
                     <TextInput
                       style={styles.textInput}
                       placeholder="0"
@@ -978,7 +993,7 @@ export function NormalSaleSupplyScreen() {
                     />
                   </View>
                   <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
-                    <Text style={styles.label}>{hasSecondaryQty ? 'Single Rate' : 'Rate *'}</Text>
+                    <Text style={styles.label}>{showPackQty ? 'Single Rate' : 'Rate *'}</Text>
                     <TextInput
                       style={styles.textInput}
                       placeholder="0.00"
@@ -1015,10 +1030,12 @@ export function NormalSaleSupplyScreen() {
                   </View>
                 </View>
 
-                {hasSecondaryQty && (
+                {showPackQty && (
                   <View style={styles.row}>
                     <View style={[styles.inputGroup, { flex: 1, marginRight: Theme.spacing.sm }]}>
-                      <Text style={styles.label}>Pack Qty</Text>
+                      <Text style={styles.label}>
+                        Pack Qty{line.secUnit || selectedMasterItem?.secondaryUnit ? ` (${line.secUnit || selectedMasterItem?.secondaryUnit})` : ''}
+                      </Text>
                       <TextInput
                         style={styles.textInput}
                         placeholder="0"
@@ -1048,13 +1065,13 @@ export function NormalSaleSupplyScreen() {
           })}
           <View style={{ height: 130 }} />
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
 
       <View style={styles.footer}>
         <View style={styles.totalsSummary}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total Qty: <Text style={styles.totalValue}>{totals.qty.toLocaleString()}</Text></Text>
-            {hasSecondaryQty && (
+            {showPackQty && (
               <Text style={styles.totalLabel}>Pack Qty: <Text style={styles.totalValue}>{totals.secQty.toLocaleString()}</Text></Text>
             )}
             <Text style={styles.grandTotalValue}>Rs. {totals.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>

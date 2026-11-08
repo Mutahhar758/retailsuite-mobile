@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { KeyboardAwareContainer } from '../ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -153,12 +154,15 @@ export function NormalPurchaseScreen() {
         }
 
         const mappedLines: EditablePurchaseLine[] = details.map((d) => {
-          const itemObj = loadedItems.find((i) => String(i.id) === String(d.itemId));
+          const itemObj = loadedItems.find(
+            (i) => String(i.id).trim().toLowerCase() === String(d.itemId).trim().toLowerCase()
+          );
           const resolved = resolveDisplayQtyAndUnit(d.qty, itemObj, loadedUnits, d.unit);
+          const hasSec = Boolean(Number(d.secQty || 0) > 0 || d.secUnit || itemObj?.secondaryUnit);
           return {
             seq: d.seq,
             itemId: d.itemId,
-            unit: d.unit || itemObj?.primaryUnit || '',
+            unit: resolved.unitId || d.unit || itemObj?.primaryUnit || '',
             qty: d.qty,
             displayQty: resolved.displayQty,
             selectedUnitId: resolved.selectedUnitId,
@@ -168,7 +172,7 @@ export function NormalPurchaseScreen() {
             secQty: d.secQty || 0,
             secRate: d.secRate || 0,
             secUnit: d.secUnit || itemObj?.secondaryUnit || '',
-            showExtras: Boolean((d.addLess || 0) !== 0 || (d.secQty || 0) > 0),
+            showExtras: Boolean((d.addLess || 0) !== 0 || hasSec),
           };
         });
         setLines(mappedLines);
@@ -275,6 +279,7 @@ export function NormalPurchaseScreen() {
     const currentDisp = line.displayQty ?? line.qty ?? 0;
     const newBaseQty = toBasePrimaryQty(currentDisp, nextOpt.factor);
     updateLine(line.seq, {
+      unit: nextOpt.unitId,
       selectedUnitId: nextOpt.unitId,
       unitFactor: nextOpt.factor,
       qty: newBaseQty,
@@ -343,7 +348,7 @@ export function NormalPurchaseScreen() {
       const cleanedLines: PurchaseLineRequest[] = lines.map((l, idx) => ({
         seq: idx + 1,
         itemId: l.itemId,
-        unit: l.unit || undefined,
+        unit: l.selectedUnitId || l.unit || undefined,
         qty: Number(l.qty) || 0,
         rate: Number(l.rate) || 0,
         addLess: Number(l.addLess) || 0,
@@ -414,6 +419,26 @@ export function NormalPurchaseScreen() {
     ]);
   };
 
+  const getUnitTitle = (codeOrTitle?: string | null, item?: Item | null) => {
+    if (!codeOrTitle && !item) return '';
+    const clean = String(codeOrTitle || '').trim();
+    if (clean) {
+      const u = units.find(
+        (x) =>
+          x.code?.toLowerCase() === clean.toLowerCase() ||
+          x.title?.toLowerCase() === clean.toLowerCase()
+      );
+      if (u) return (u.shortTitle && u.shortTitle.trim()) || u.title;
+    }
+    if (item) {
+      if (clean && clean === item.secondaryUnit && item.secondaryUnitTitle) return item.secondaryUnitTitle;
+      if (item.primaryUnitTitle) return item.primaryUnitTitle;
+      if (item.defaultUnitTitle) return item.defaultUnitTitle;
+    }
+    if (/^\d+$/.test(clean)) return '';
+    return clean;
+  };
+
   const supplierOptions: InlineSelectOption[] = useMemo(
     () =>
       suppliers.map((s) => ({
@@ -441,7 +466,7 @@ export function NormalPurchaseScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
+      <KeyboardAwareContainer
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
@@ -450,7 +475,7 @@ export function NormalPurchaseScreen() {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+            { paddingBottom: isKeyboardVisible ? 24 : 40 },
           ]}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardShouldPersistTaps="handled"
@@ -614,6 +639,12 @@ export function NormalPurchaseScreen() {
                   line.unit ||
                   'Unit';
                 const dispQty = line.displayQty ?? line.qty ?? 0;
+                const showSecQty = Boolean(
+                  hasSecondaryQty ||
+                  line.secUnit ||
+                  itemObj?.secondaryUnit ||
+                  Number(line.secQty || 0) > 0
+                );
                 const lineTotal =
                   Math.round(
                     ((line.qty || 0) * (line.rate || 0) +
@@ -644,7 +675,7 @@ export function NormalPurchaseScreen() {
                               line.showExtras && { color: '#FFF' },
                             ]}
                           >
-                            +Add/Less
+                            {line.showExtras ? 'Close' : showSecQty ? '+Add/Less • Sec' : '+Add/Less'}
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
@@ -739,10 +770,12 @@ export function NormalPurchaseScreen() {
                             }
                           />
                         </View>
-                        {hasSecondaryQty && (
+                        {showSecQty && (
                           <>
                             <View style={styles.extraField}>
-                              <Text style={styles.extraLabel}>Sec Qty</Text>
+                              <Text style={styles.extraLabel}>
+                                Sec Qty ({getUnitTitle(line.secUnit || itemObj?.secondaryUnit, itemObj) || 'Pack'})
+                              </Text>
                               <TextInput
                                 style={styles.extraInput}
                                 keyboardType="numeric"
@@ -812,7 +845,7 @@ export function NormalPurchaseScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
     </SafeAreaView>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { KeyboardAwareContainer } from '../ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -190,12 +191,15 @@ export function NormalSaleScreen() {
         }
 
         const mappedLines: EditableSaleLine[] = details.map((d) => {
-          const itemObj = loadedItems.find((i) => String(i.id) === String(d.itemId));
+          const itemObj = loadedItems.find(
+            (i) => String(i.id).trim().toLowerCase() === String(d.itemId).trim().toLowerCase()
+          );
           const resolved = resolveDisplayQtyAndUnit(d.qty, itemObj, loadedUnits, d.unit);
+          const hasSec = Boolean(Number(d.secQty || 0) > 0 || d.secUnit || itemObj?.secondaryUnit);
           return {
             seq: d.seq,
             itemId: d.itemId,
-            unit: d.unit || itemObj?.primaryUnit || '',
+            unit: resolved.unitId || d.unit || itemObj?.primaryUnit || '',
             qty: d.qty,
             displayQty: resolved.displayQty,
             selectedUnitId: resolved.selectedUnitId,
@@ -206,7 +210,7 @@ export function NormalSaleScreen() {
             secQty: d.secQty || 0,
             secRate: d.secRate || 0,
             secUnit: d.secUnit || itemObj?.secondaryUnit || '',
-            showExtras: Boolean((d.discount || 0) > 0 || (d.carriage || 0) > 0 || (d.secQty || 0) > 0),
+            showExtras: Boolean((d.discount || 0) > 0 || (d.carriage || 0) > 0 || hasSec),
           };
         });
         setLines(mappedLines);
@@ -385,6 +389,7 @@ export function NormalSaleScreen() {
     // Keep the entered number or convert baseQty cleanly:
     const newBaseQty = toBasePrimaryQty(currentDisp, nextOpt.factor);
     updateLine(line.seq, {
+      unit: nextOpt.unitId,
       selectedUnitId: nextOpt.unitId,
       unitFactor: nextOpt.factor,
       qty: newBaseQty,
@@ -563,7 +568,7 @@ export function NormalSaleScreen() {
       const cleanedLines: SaleLineRequest[] = lines.map((l, idx) => ({
         seq: idx + 1,
         itemId: l.itemId,
-        unit: l.unit || undefined,
+        unit: l.selectedUnitId || l.unit || undefined,
         qty: Number(l.qty) || 0,
         rate: Number(l.rate) || 0,
         discount: Number(l.discount) || 0,
@@ -721,7 +726,7 @@ export function NormalSaleScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
+      <KeyboardAwareContainer
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
@@ -730,7 +735,7 @@ export function NormalSaleScreen() {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+            { paddingBottom: isKeyboardVisible ? 24 : 40 },
           ]}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardShouldPersistTaps="handled"
@@ -907,6 +912,12 @@ export function NormalSaleScreen() {
                 const isBelowMin = minPrice > 0 && Number(line.rate || 0) < minPrice;
 
                 const dispQty = line.displayQty ?? line.qty ?? 0;
+                const showSecQty = Boolean(
+                  hasSecondaryQty ||
+                  line.secUnit ||
+                  itemObj?.secondaryUnit ||
+                  Number(line.secQty || 0) > 0
+                );
 
                 return (
                   <View key={line.seq} style={styles.lineCard}>
@@ -961,7 +972,7 @@ export function NormalSaleScreen() {
                               line.showExtras && { color: '#FFFFFF' },
                             ]}
                           >
-                            % Disc
+                            {line.showExtras ? 'Close' : showSecQty ? '% Disc / Sec' : '% Disc'}
                           </Text>
                         </TouchableOpacity>
 
@@ -1119,11 +1130,11 @@ export function NormalSaleScreen() {
                           />
                         </View>
 
-                        {hasSecondaryQty && (
+                        {showSecQty && (
                           <>
                             <View style={styles.extraField}>
                               <Text style={styles.extraLabel}>
-                                Sec Qty ({getUnitTitle(line.secUnit) || 'Pack'})
+                                Sec Qty ({getUnitTitle(line.secUnit || itemObj?.secondaryUnit, itemObj) || 'Pack'})
                               </Text>
                               <TextInput
                                 style={styles.extraInput}
@@ -1290,7 +1301,7 @@ export function NormalSaleScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
 
       <MobileSaleReceiptModal
         visible={receiptModalVisible}

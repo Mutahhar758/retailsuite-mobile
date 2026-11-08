@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { KeyboardAwareContainer } from '../ui/KeyboardAwareContainer';
 import {
   View,
   Text,
@@ -616,7 +617,7 @@ export function WandaSaleScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
+      <KeyboardAwareContainer
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         style={styles.container}
@@ -625,7 +626,7 @@ export function WandaSaleScreen() {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: isKeyboardVisible ? Math.max(keyboardHeight, 280) + 24 : 40 },
+            { paddingBottom: isKeyboardVisible ? 24 : 40 },
           ]}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           keyboardShouldPersistTaps="handled"
@@ -1007,7 +1008,7 @@ export function WandaSaleScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareContainer>
 
       <MobileSaleReceiptModal
         visible={receiptModalVisible}
