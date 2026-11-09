@@ -203,7 +203,7 @@ export default function ReportsScreen() {
   const IsWandaFeature = currentOrg?.hasVariablePackFeature ?? false;
 
   const hasPermission = (permission: string) => {
-    if (user?.isOwner) return true;
+    if (user?.isOwner || (user as any)?.IsOwner) return true;
     if (permissions.includes('Permissions.Reports.View')) return true;
     if (permissions.includes(permission)) return true;
     if (permission === 'Permissions.PurchaseSupplyComparison.View' && permissions.includes('Permissions.MilkComparison.View')) return true;
@@ -318,6 +318,32 @@ export default function ReportsScreen() {
     routeParams.item,
     routeParams.itemId,
   ]);
+
+  // Synchronize category & active report to first allowed report if current selection is not allowed
+  useEffect(() => {
+    if (allowedReports.length > 0) {
+      const isCurrentAllowed = allowedReports.some((r) => r.id === selectedReportId);
+      if (!isCurrentAllowed) {
+        const first = allowedReports[0];
+        setSelectedCategory(first.category);
+        setSelectedReportId(first.id);
+      } else {
+        const currentInCat = allowedReports.some(
+          (r) => r.category === selectedCategory && r.id === selectedReportId
+        );
+        if (!currentInCat) {
+          const firstOfCat = allowedReports.find((r) => r.category === selectedCategory);
+          if (firstOfCat) {
+            setSelectedReportId(firstOfCat.id);
+          } else {
+            const first = allowedReports[0];
+            setSelectedCategory(first.category);
+            setSelectedReportId(first.id);
+          }
+        }
+      }
+    }
+  }, [allowedReports]);
 
   const currentReport = useMemo(
     () => allowedReports.find((r) => r.id === selectedReportId) || ALL_REPORTS[0],
@@ -954,46 +980,58 @@ export default function ReportsScreen() {
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {/* Modern Compact Visual Report Cards */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.reportScrollContainer}
-        >
-          {allowedReports
-            .filter((r) => r.category === selectedCategory)
-            .map((r) => {
-              const isSelected = selectedReportId === r.id;
-              return (
-                <TouchableOpacity
-                  key={r.id}
-                  style={[styles.reportCard, isSelected && styles.reportCardActive]}
-                  onPress={() => handleSelectReport(r)}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.cardTopRow}>
-                    <View style={[styles.reportIconBox, { backgroundColor: isSelected ? r.color : 'rgba(99, 102, 241, 0.1)' }]}>
-                      <Ionicons name={r.icon} size={18} color={isSelected ? '#ffffff' : r.color} />
-                    </View>
-                    {isSelected && (
-                      <Ionicons name="checkmark-circle" size={17} color="#6366f1" />
-                    )}
-                  </View>
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={[styles.reportCardTitle, isSelected && styles.reportCardTitleActive]} numberOfLines={1}>
-                      {r.shortTitle}
-                    </Text>
-                    <Text style={styles.reportCardTagline} numberOfLines={1}>
-                      {r.tagline}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-        </ScrollView>
+        {allowedReports.length === 0 ? (
+          <View style={[styles.card, { alignItems: 'center', paddingVertical: 40, marginTop: 16 }]}>
+            <Ionicons name="lock-closed-outline" size={44} color={Theme.colors.border} />
+            <Text style={{ fontSize: 16, fontWeight: '700', color: Theme.colors.text, marginTop: 12 }}>
+              No Reports Available
+            </Text>
+            <Text style={{ fontSize: 13, color: Theme.colors.textSecondary, textAlign: 'center', marginTop: 6, paddingHorizontal: 24 }}>
+              Your user account does not have access to any reports. Please ask an administrator to assign report permissions to your role.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Modern Compact Visual Report Cards */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.reportScrollContainer}
+            >
+              {allowedReports
+                .filter((r) => r.category === selectedCategory)
+                .map((r) => {
+                  const isSelected = selectedReportId === r.id;
+                  return (
+                    <TouchableOpacity
+                      key={r.id}
+                      style={[styles.reportCard, isSelected && styles.reportCardActive]}
+                      onPress={() => handleSelectReport(r)}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.cardTopRow}>
+                        <View style={[styles.reportIconBox, { backgroundColor: isSelected ? r.color : 'rgba(99, 102, 241, 0.1)' }]}>
+                          <Ionicons name={r.icon} size={18} color={isSelected ? '#ffffff' : r.color} />
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={17} color="#6366f1" />
+                        )}
+                      </View>
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={[styles.reportCardTitle, isSelected && styles.reportCardTitleActive]} numberOfLines={1}>
+                          {r.shortTitle}
+                        </Text>
+                        <Text style={styles.reportCardTagline} numberOfLines={1}>
+                          {r.tagline}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+            </ScrollView>
 
-        {/* Filter Configuration Card */}
-        <View style={styles.card}>
+            {/* Filter Configuration Card */}
+            <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="options-outline" size={16} color={Theme.colors.primary} />
             <Text style={styles.cardHeaderText}>Report Parameters</Text>
@@ -1569,6 +1607,8 @@ export default function ReportsScreen() {
               <Ionicons name="chevron-forward" size={16} color="#6366f1" style={{ marginLeft: 'auto' }} />
             </TouchableOpacity>
           </Animated.View>
+        )}
+          </>
         )}
       </ScrollView>
 

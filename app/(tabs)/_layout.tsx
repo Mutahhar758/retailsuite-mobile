@@ -22,8 +22,34 @@ export default function TabLayout() {
     hasPermission('View', 'POSSales') || 
     hasPermission('View', 'PaymentVouchers') || 
     hasPermission('View', 'Purchases');
-  const showReports = hasPermission('View', 'Reports');
-  const showSetup = hasPermission('View', 'Customers') || hasPermission('View', 'Suppliers') || hasPermission('View', 'InventoryItems');
+  const showReports = 
+    user?.isOwner ||
+    hasPermission('View', 'Reports') ||
+    permissions.some((p) =>
+      p === 'Permissions.AccountStatement.View' ||
+      p === 'Permissions.AccountStatementWithDue.View' ||
+      p === 'Permissions.AccountBalance.View' ||
+      p === 'Permissions.TrialBalance.View' ||
+      p === 'Permissions.StockBalance.View' ||
+      p === 'Permissions.StockLedger.View' ||
+      p === 'Permissions.IncomeSummary.View' ||
+      p === 'Permissions.BalanceSheet.View' ||
+      p === 'Permissions.CustomerBill.View' ||
+      p === 'Permissions.CustomerBalanceRecovery.View' ||
+      p === 'Permissions.PurchaseSupplyComparison.View' ||
+      p === 'Permissions.MilkComparison.View' ||
+      p === 'Permissions.ProfitByCustomer.View' ||
+      p === 'Permissions.ProfitByItem.View' ||
+      p === 'Permissions.MiscReports.View'
+    );
+
+  const showSetup = 
+    user?.isOwner ||
+    hasPermission('View', 'Customers') || 
+    hasPermission('View', 'Suppliers') || 
+    hasPermission('View', 'Vendors') || 
+    hasPermission('View', 'InventoryItems') ||
+    hasPermission('View', 'ChartOfAccounts');
 
   return (
     <>
