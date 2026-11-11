@@ -614,14 +614,24 @@ export default function ReportsScreen() {
         case 'customer_bill': {
           const billCust = activeCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
           if (!billCust) throw new Error('Please select a customer.');
-          filename = `CustomerBill_${billCust}_${fromStr}_${toStr}.pdf`;
-          base64 = await reportService.getCustomerBillPdf({
-            fromDate: fromStr,
-            toDate: toStr,
-            account: billCust,
-            dateBasis,
-            layout: customerBillLayout,
-          });
+          filename = IsWandaFeature
+            ? `WandaCustomerBill_${billCust}_${fromStr}_${toStr}.pdf`
+            : `CustomerBill_${billCust}_${fromStr}_${toStr}.pdf`;
+          base64 = IsWandaFeature
+            ? await reportService.getWandaCustomerBillPdf({
+                fromDate: fromStr,
+                toDate: toStr,
+                account: billCust,
+                dateBasis,
+                layout: customerBillLayout,
+              })
+            : await reportService.getCustomerBillPdf({
+                fromDate: fromStr,
+                toDate: toStr,
+                account: billCust,
+                dateBasis,
+                layout: customerBillLayout,
+              });
           break;
         }
 
@@ -843,12 +853,19 @@ export default function ReportsScreen() {
         case 'customer_bill': {
           const custTarget = activeCustomerId || (customerAccounts.length > 0 ? customerAccounts[0].account : '');
           if (!custTarget) throw new Error('Please select a customer.');
-          data = await reportService.getCustomerBill({
-            fromDate: fromStr,
-            toDate: toStr,
-            account: custTarget,
-            dateBasis,
-          });
+          data = IsWandaFeature
+            ? await reportService.getWandaCustomerBill({
+                fromDate: fromStr,
+                toDate: toStr,
+                account: custTarget,
+                dateBasis,
+              })
+            : await reportService.getCustomerBill({
+                fromDate: fromStr,
+                toDate: toStr,
+                account: custTarget,
+                dateBasis,
+              });
           break;
         }
 
@@ -1582,6 +1599,13 @@ export default function ReportsScreen() {
                     <Text style={[styles.metricValue, { color: '#4338ca' }]}>Rs. {reportData.summary.balance.toLocaleString()}</Text>
                   </View>
                 </View>
+                {IsWandaFeature && reportData?.isSubAccount && reportData?.linkedMainAccountTitle && (
+                  <View style={{ backgroundColor: '#f0fdf4', padding: 8, borderRadius: 8, marginTop: 6, borderWidth: 1, borderColor: '#bbf7d0' }}>
+                    <Text style={{ fontSize: 12, color: '#166534', fontWeight: '600' }}>
+                      Main Account: {reportData.linkedMainAccountTitle} (Bal: Rs. {(reportData.linkedMainAccountBalance || 0).toLocaleString()})
+                    </Text>
+                  </View>
+                )}
                 {IsWandaFeature && reportData?.lines?.length > 0 && (
                   <View style={[styles.metricGrid, { marginTop: 6 }]}>
                     <View style={[styles.metricBox, { backgroundColor: '#fffbeb' }]}>

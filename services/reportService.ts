@@ -96,6 +96,7 @@ export interface CustomerBillLine {
   qty: number;
   rate: number;
   addLess: number;
+  carriage?: number;
   amount: number;
   secQty?: number;
   secRate?: number;
@@ -117,6 +118,11 @@ export interface CustomerBillResponse {
     previousBalance: number;
     payment: number;
     balance: number;
+    totalSales?: number;
+    totalPurchases?: number;
+    totalSaleReturns?: number;
+    totalPurchaseReturns?: number;
+    totalBill?: number;
   };
 }
 
@@ -353,6 +359,19 @@ export const reportService = {
     layout?: 'A4' | 'Thermal';
   }): Promise<string> {
     return fetchPdfBase64('/api/reports/customer-bill/pdf', params);
+  },
+  async getWandaCustomerBill(params: { fromDate: string; toDate: string; account: string; dateBasis?: 'VoucherDate' | 'ClearingDate' }) {
+    const response = await api.get('/api/reports/wanda-customer-bill', { params });
+    return response.data.body as CustomerBillResponse;
+  },
+  async getWandaCustomerBillPdf(params: {
+    fromDate: string;
+    toDate: string;
+    account: string;
+    dateBasis?: 'VoucherDate' | 'ClearingDate';
+    layout?: 'A4' | 'Thermal';
+  }): Promise<string> {
+    return fetchPdfBase64('/api/reports/wanda-customer-bill/pdf', params);
   },
 
   // 10. Purchase vs Supply Comparison
