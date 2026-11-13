@@ -32,6 +32,7 @@ import {
 import { chartOfAccountService, ChartOfAccountHeadDto } from '../../services/chartOfAccountService';
 import { inventoryService, Item } from '../../services/inventoryService';
 import { itemCategoryService, ItemCategoryDto } from '../../services/itemCategoryService';
+import { settingService } from '../../services/settingService';
 import { PdfViewerModal } from '../../components/reports/PdfViewerModal';
 import { InlineSearchSelect } from '../../components/ui/InlineSearchSelect';
 
@@ -395,12 +396,18 @@ export default function ReportsScreen() {
   useEffect(() => {
     const loadLookups = async () => {
       try {
-        const [allAccounts, customersRes, itemsRes, categoriesRes] = await Promise.all([
+        const [allAccounts, customersRes, itemsRes, categoriesRes, defaultFormatSetting] = await Promise.all([
           chartOfAccountService.getActiveAccounts(),
           chartOfAccountService.getCustomerAccounts(),
           inventoryService.getItemsLookup(),
           itemCategoryService.getActiveItemCategoriesLookup(),
+          settingService.getSettingByKey('Bill.DefaultFormat').catch(() => null),
         ]);
+        if (defaultFormatSetting?.value) {
+          setCustomerBillLayout(
+            defaultFormatSetting.value.toLowerCase().includes('thermal') ? 'Thermal' : 'A4'
+          );
+        }
 
         const details = allAccounts
           .filter((a: any) => a.accType === 'Detail' || a.accLevel === 5)
@@ -1171,43 +1178,6 @@ export default function ReportsScreen() {
                 icon="person-outline"
                 clearable={selectedReportId !== 'customer_bill'}
               />
-            </View>
-          )}
-
-          {/* Customer Bill Layout */}
-          {selectedReportId === 'customer_bill' && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Print Format</Text>
-              <View style={styles.toggleRow}>
-                <TouchableOpacity
-                  style={[styles.toggleBtn, customerBillLayout === 'Thermal' && styles.toggleBtnActive]}
-                  onPress={() => setCustomerBillLayout('Thermal')}
-                >
-                  <Ionicons
-                    name="receipt-outline"
-                    size={14}
-                    color={customerBillLayout === 'Thermal' ? '#ffffff' : '#64748b'}
-                    style={{ marginRight: 5 }}
-                  />
-                  <Text style={[styles.toggleBtnText, customerBillLayout === 'Thermal' && styles.toggleBtnTextActive]}>
-                    Thermal View
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toggleBtn, customerBillLayout === 'A4' && styles.toggleBtnActive]}
-                  onPress={() => setCustomerBillLayout('A4')}
-                >
-                  <Ionicons
-                    name="document-outline"
-                    size={14}
-                    color={customerBillLayout === 'A4' ? '#ffffff' : '#64748b'}
-                    style={{ marginRight: 5 }}
-                  />
-                  <Text style={[styles.toggleBtnText, customerBillLayout === 'A4' && styles.toggleBtnTextActive]}>
-                    A4 View
-                  </Text>
-                </TouchableOpacity>
-              </View>
             </View>
           )}
 
