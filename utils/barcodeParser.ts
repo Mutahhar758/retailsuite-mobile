@@ -75,6 +75,35 @@ export function parseBarcodePayload(
     }
   }
 
+  // 0a-2. RetailSuite Compact 12-digit Variable Barcode (By Amount): 3 + IIIIII + PPPPP
+  if (cleanDigits.length === 12 && cleanDigits.startsWith('3')) {
+    const exactMatch = items.find(
+      (i) => i.barcode && i.barcode.trim().toLowerCase() === raw.toLowerCase()
+    );
+    if (!exactMatch) {
+      const itemPart = cleanDigits.substring(1, 7);
+      const amtPart = cleanDigits.substring(7, 12);
+      const rawAmt = parseInt(amtPart, 10);
+
+      const item = findItemByPlu(itemPart, items) || findItemByCode(itemPart, items);
+      if (item && rawAmt > 0) {
+        const totalAmt = round2(rawAmt);
+        const baseRate = item.priRate || 0;
+        const parsedQty = baseRate > 0 ? round4(totalAmt / baseRate) : 1;
+
+        return {
+          matchedItem: item,
+          qty: parsedQty,
+          rate: baseRate > 0 ? baseRate : totalAmt,
+          amount: totalAmt,
+          isVariableWeight: true,
+          unit: resolveItemUnitTitle(item),
+          rawCode: raw
+        };
+      }
+    }
+  }
+
   // 0b. RetailSuite Compact 18-digit Variable Barcode: 2 + IIIIII + QQQQQ + AAAAAA
   if (cleanDigits.length === 18 && cleanDigits.startsWith('2')) {
     const itemPart = cleanDigits.substring(1, 7);
@@ -329,4 +358,8 @@ function round2(val: number): number {
 
 function round3(val: number): number {
   return Math.round((val + Number.EPSILON) * 1000) / 1000;
+}
+
+function round4(val: number): number {
+  return Math.round((val + Number.EPSILON) * 10000) / 10000;
 }
