@@ -15,6 +15,12 @@ export default function TabLayout() {
     return permissions.includes(requiredPermission);
   };
 
+  const showKhata =
+    user?.isOwner ||
+    hasPermission('View', 'ReceiptVouchers') ||
+    hasPermission('View', 'PaymentVouchers') ||
+    hasPermission('View', 'AccountStatement');
+
   const showDataEntry = 
     hasPermission('View', 'ReceiptVouchers') || 
     hasPermission('View', 'SaleSupplies') || 
@@ -73,6 +79,16 @@ export default function TabLayout() {
             title: 'Dashboard',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="grid-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="khata"
+          options={{
+            title: 'Khata',
+            href: showKhata ? undefined : null as any,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="book-outline" size={size} color={color as string} />
             ),
           }}
         />
