@@ -13,6 +13,7 @@ import {
   Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { COA_PREFIXES } from '../../constants/chartOfAccountConstants';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -103,7 +104,7 @@ export default function BulkReceiptScreen() {
       const toDateStr = dayjs(targetDate).endOf('month').format('YYYY-MM-DD');
       // Fetch balances from balance-detail for Customer parent account
       const balanceData = await reportService.getBalanceDetail({
-        account: '001002001001',
+        account: COA_PREFIXES.CUSTOMERS,
         toDate: toDateStr
       });
 
