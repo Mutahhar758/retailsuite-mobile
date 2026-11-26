@@ -34,6 +34,7 @@ export default function VendorFormScreen() {
   
   // Form State
   const [title, setTitle] = useState('');
+  const [sortIndex, setSortIndex] = useState('');
   const [email, setEmail] = useState('');
   const [phone1, setPhone1] = useState('');
   const [phone2, setPhone2] = useState('');
@@ -61,6 +62,7 @@ export default function VendorFormScreen() {
       const details = await vendorService.getDetail(account!);
       if (details) {
         setTitle(details.title || '');
+        setSortIndex(details.sortIndex != null ? String(details.sortIndex) : '');
         setEmail(details.email || '');
         setPhone1(details.phone1 || '');
         setPhone2(details.phone2 || '');
@@ -151,15 +153,16 @@ export default function VendorFormScreen() {
 
     setSaving(true);
     try {
+      const parsedSortIndex = sortIndex.trim() !== '' && !isNaN(Number(sortIndex)) ? Number(sortIndex) : null;
       if (isEdit) {
         const payload: VendorUpdateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, showInSales, smsAlert, emailAlert, mediaId: mediaId || undefined
+          title, sortIndex: parsedSortIndex, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, showInSales, smsAlert, emailAlert, mediaId: mediaId || undefined
         };
         await vendorService.update(account!, payload);
         Alert.alert('Success', 'Vendor updated successfully.', [{ text: 'OK', onPress: () => router.back() }]);
       } else {
         const payload: VendorCreateRequest = {
-          title, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, showInSales, smsAlert, emailAlert, mediaId: mediaId || undefined
+          title, sortIndex: parsedSortIndex, email, phone1, phone2, address, cnic, fax, smsNumber, iban, active, showInSales, smsAlert, emailAlert, mediaId: mediaId || undefined
         };
         await vendorService.create(payload);
         Alert.alert('Success', 'Vendor created successfully.', [{ text: 'OK', onPress: () => router.back() }]);
@@ -221,6 +224,18 @@ export default function VendorFormScreen() {
                 placeholderTextColor={Theme.colors.textSecondary}
                 value={title}
                 onChangeText={setTitle}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Index (Optional Sort Order)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 1, 2, 2.5 (blank sorts by name)"
+                placeholderTextColor={Theme.colors.textSecondary}
+                value={sortIndex}
+                onChangeText={setSortIndex}
+                keyboardType="decimal-pad"
               />
             </View>
 

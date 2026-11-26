@@ -72,6 +72,11 @@ export default function CustomersListScreen() {
             <View style={styles.cardHeader}>
               <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
               <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {item.sortIndex != null && (
+                  <View style={[styles.statusBadge, { backgroundColor: '#eef2ff' }]}>
+                    <Text style={[styles.statusText, { color: '#4338ca' }]}>#{item.sortIndex}</Text>
+                  </View>
+                )}
                 {Boolean(item.customerCategoryTitle || (item.customerCategoryId && categoryMap[item.customerCategoryId])) && (
                   <View style={[styles.statusBadge, { backgroundColor: '#f0fdf4' }]}>
                     <Text style={[styles.statusText, { color: '#15803d' }]}>

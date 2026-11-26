@@ -50,6 +50,7 @@ export default function CustomerFormScreen() {
 
   // Form State
   const [title, setTitle] = useState('');
+  const [sortIndex, setSortIndex] = useState('');
   const [customerCategoryId, setCustomerCategoryId] = useState<string>('');
   const [customerCategoryTitle, setCustomerCategoryTitle] = useState<string>('');
   const [email, setEmail] = useState('');
@@ -106,6 +107,7 @@ export default function CustomerFormScreen() {
 
       if (details) {
         setTitle(details.title || '');
+        setSortIndex(details.sortIndex != null ? String(details.sortIndex) : '');
         setCustomerCategoryId(details.customerCategoryId || '');
         setCustomerCategoryTitle(details.customerCategoryTitle || '');
         setEmail(details.email || '');
@@ -263,8 +265,10 @@ export default function CustomerFormScreen() {
           addLess: s.addLess != null ? Number(s.addLess) : undefined,
         }));
 
+      const parsedSortIndex = sortIndex.trim() !== '' && !isNaN(Number(sortIndex)) ? Number(sortIndex) : null;
       const commonPayload = {
         title,
+        sortIndex: parsedSortIndex,
         customerCategoryId: customerCategoryId || null,
         email,
         phone1,
@@ -382,6 +386,18 @@ export default function CustomerFormScreen() {
                 placeholderTextColor={Theme.colors.textSecondary}
                 value={title}
                 onChangeText={setTitle}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Index (Optional Sort Order)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 1, 2, 2.5 (blank sorts by name)"
+                placeholderTextColor={Theme.colors.textSecondary}
+                value={sortIndex}
+                onChangeText={setSortIndex}
+                keyboardType="decimal-pad"
               />
             </View>
 

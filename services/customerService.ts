@@ -31,6 +31,7 @@ export interface CustomerResponse {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
   mediaUrl?: string;
   parentCustomerAccountId?: string;
@@ -59,6 +60,7 @@ export interface CustomerCreateRequest {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
   parentCustomerAccountId?: string;
   customerCategoryId?: string | null;
@@ -79,6 +81,7 @@ export interface CustomerUpdateRequest {
   smsAlert: boolean;
   emailAlert: boolean;
   active: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
   parentCustomerAccountId?: string;
   customerCategoryId?: string | null;

@@ -42,6 +42,7 @@ export interface Item {
   brandId?: string | null;
   brandTitle?: string | null;
   requireImei?: boolean;
+  sortIndex?: number | null;
   customerCategoryPrices?: ItemCustomerCategoryPriceDto[];
 }
 
@@ -73,6 +74,7 @@ export interface InventoryItemUpsertRequest {
   additionalUnits?: string | null;
   brandId?: string | null;
   requireImei?: boolean;
+  sortIndex?: number | null;
   customerCategoryPrices?: ItemCustomerCategoryPriceDto[];
 }
 

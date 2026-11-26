@@ -81,10 +81,17 @@ export default function ProductsListScreen() {
           <View style={{ flex: 1, marginLeft: Theme.spacing.sm }}>
             <View style={styles.cardHeader}>
               <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-              <View style={[styles.typeBadge, { backgroundColor: item.itemType === 'Service' ? Theme.colors.secondary + '20' : Theme.colors.primary + '20' }]}>
-                <Text style={[styles.typeText, { color: item.itemType === 'Service' ? Theme.colors.secondary : Theme.colors.primary }]}>
-                  {item.itemType || 'Product'}
-                </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {item.sortIndex != null && (
+                  <View style={[styles.typeBadge, { backgroundColor: '#eef2ff' }]}>
+                    <Text style={[styles.typeText, { color: '#4338ca' }]}>#{item.sortIndex}</Text>
+                  </View>
+                )}
+                <View style={[styles.typeBadge, { backgroundColor: item.itemType === 'Service' ? Theme.colors.secondary + '20' : Theme.colors.primary + '20' }]}>
+                  <Text style={[styles.typeText, { color: item.itemType === 'Service' ? Theme.colors.secondary : Theme.colors.primary }]}>
+                    {item.itemType || 'Product'}
+                  </Text>
+                </View>
               </View>
             </View>
             <View style={styles.cardBody}>

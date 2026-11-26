@@ -63,10 +63,17 @@ export default function VendorsListScreen() {
           <View style={{ flex: 1, marginLeft: Theme.spacing.sm }}>
             <View style={styles.cardHeader}>
               <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
-                <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
-                  {item.active ? 'Active' : 'Inactive'}
-                </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {item.sortIndex != null && (
+                  <View style={[styles.statusBadge, { backgroundColor: '#eef2ff' }]}>
+                    <Text style={[styles.statusText, { color: '#4338ca' }]}>#{item.sortIndex}</Text>
+                  </View>
+                )}
+                <View style={[styles.statusBadge, { backgroundColor: item.active ? Theme.colors.success + '20' : Theme.colors.danger + '20' }]}>
+                  <Text style={[styles.statusText, { color: item.active ? Theme.colors.success : Theme.colors.danger }]}>
+                    {item.active ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
               </View>
             </View>
             <View style={styles.cardBody}>

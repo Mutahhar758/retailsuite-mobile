@@ -16,6 +16,7 @@ export interface VendorResponse {
   emailAlert: boolean;
   active: boolean;
   showInSales: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
   mediaUrl?: string;
   createdBy?: string;
@@ -39,6 +40,7 @@ export interface VendorCreateRequest {
   emailAlert: boolean;
   active: boolean;
   showInSales: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
 }
 
@@ -57,6 +59,7 @@ export interface VendorUpdateRequest {
   emailAlert: boolean;
   active: boolean;
   showInSales: boolean;
+  sortIndex?: number | null;
   mediaId?: string;
 }
 

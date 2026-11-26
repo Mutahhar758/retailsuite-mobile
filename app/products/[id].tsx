@@ -58,6 +58,7 @@ export default function ProductFormScreen() {
   const [itemCategoryTitle, setItemCategoryTitle] = useState('');
   const [brandId, setBrandId] = useState('');
   const [title, setTitle] = useState('');
+  const [sortIndex, setSortIndex] = useState('');
   const [itemKey, setItemKey] = useState('');
   const [priRate, setPriRate] = useState('0');
   const [secRate, setSecRate] = useState('0');
@@ -116,6 +117,7 @@ export default function ProductFormScreen() {
           setItemCategoryTitle(details.itemCategoryTitle || '');
           setBrandId(details.brandId || '');
           setTitle(details.title || '');
+          setSortIndex(details.sortIndex != null ? String(details.sortIndex) : '');
           setItemKey(details.itemKey || '');
           setPriRate((details.priRate ?? 0).toString());
           setSecRate((details.secRate ?? 0).toString());
@@ -267,12 +269,14 @@ export default function ProductFormScreen() {
         })
         .filter(Boolean) as ItemCustomerCategoryPriceDto[];
 
+      const parsedSortIndex = sortIndex.trim() !== '' && !isNaN(Number(sortIndex)) ? Number(sortIndex) : null;
       const payload: InventoryItemUpsertRequest = {
         id: isEdit ? id : undefined,
         itemCategoryCode,
         brandId: brandId || null,
         barcode: itemType === 'Service' ? undefined : barcode || undefined,
         title,
+        sortIndex: parsedSortIndex,
         itemKey: itemKey || undefined,
         priRate: parseFloat(priRate) || 0,
         secRate: itemType === 'Service' ? 0 : parseFloat(secRate) || 0,
@@ -485,6 +489,18 @@ export default function ProductFormScreen() {
                 placeholderTextColor={Theme.colors.textSecondary}
                 value={title}
                 onChangeText={setTitle}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Index (Optional Sort Order)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. 1, 2, 2.5 (blank sorts by name)"
+                placeholderTextColor={Theme.colors.textSecondary}
+                value={sortIndex}
+                onChangeText={setSortIndex}
+                keyboardType="decimal-pad"
               />
             </View>
 
